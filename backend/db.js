@@ -1,18 +1,23 @@
+const dns = require("node:dns");
+
+dns.setServers(["8.8.8.8", "1.1.1.1"]);
+
 const mongoose = require("mongoose");
 
 const connectDB = async () => {
-  try {
-    if (!process.env.MONGODB_URI) {
-      throw new Error("MONGODB_URI is missing in .env");
-    }
+try {
+if (!process.env.MONGODB_URI) {
+throw new Error("MONGODB_URI is missing in .env");
+}
 
-    await mongoose.connect(process.env.MONGODB_URI);
+await mongoose.connect(process.env.MONGODB_URI);
 
-    console.log("MongoDB connected successfully!");
-  } catch (error) {
-    console.error("MongoDB connection failed:", error.message);
-    throw error;
-  }
+console.log("MongoDB connected successfully!");
+
+} catch (error) {
+console.error("MongoDB connection failed:", error.message);
+throw error;
+}
 };
 
 module.exports = connectDB;
