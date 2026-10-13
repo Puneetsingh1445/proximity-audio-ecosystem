@@ -24,6 +24,7 @@ import {
   X,
 } from "lucide-react";
 import "./App.css";
+import OfficeCanvas from "./components/OfficeCanvas.jsx";
 
 const initialPeople = [
   { id: 1, name: "Aarav Mehta", initials: "AM", color: "blue", distance: "12 m", status: "In an audio room" },
@@ -45,6 +46,7 @@ const initialMessages = [
 ];
 
 const navigation = [
+  { id: "office", label: "Office Map", icon: MapPin },
   { id: "overview", label: "Overview", icon: Home },
   { id: "nearby", label: "Nearby people", icon: Users },
   { id: "rooms", label: "Audio rooms", icon: Headphones },
@@ -291,6 +293,9 @@ export default function App() {
         </header>
 
         <div className="page-content">
+          {activePage === "office" && (
+            <OfficeCanvas displayName={profileName} />
+          )}
           {activePage === "overview" && (
             <>
               <div className="welcome-row">

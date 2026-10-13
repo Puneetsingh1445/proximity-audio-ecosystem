@@ -1,0 +1,38 @@
+.office-page { display: grid; gap: 18px; }
+.office-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
+.office-heading h1 { margin: 0 0 8px; color: var(--text); font-size: clamp(25px, 3vw, 32px); letter-spacing: -1.2px; }
+.office-heading .muted { margin: 0; }
+.office-connection { display: inline-flex; align-items: center; gap: 8px; padding: 8px 11px; border: 1px solid #e5eaf1; border-radius: 999px; background: #fff; color: #657188; font-size: 11px; font-weight: 700; white-space: nowrap; }
+.office-connection > span { width: 7px; height: 7px; border-radius: 50%; background: #e5a548; }
+.office-connected { color: #2e8157; background: #f2fbf5; border-color: #d9f0e1; }
+.office-connected > span { background: #31a56c; }
+.office-disconnected { color: #a45c46; background: #fff8f5; border-color: #f4dfd7; }
+.office-disconnected > span { background: #d97757; }
+.office-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; }
+.office-key-hint, .office-toolbar-actions { display: flex; align-items: center; gap: 7px; }
+.office-key-hint kbd { display: inline-grid; place-items: center; width: 26px; height: 27px; border: 1px solid #dfe4ec; border-bottom-width: 2px; border-radius: 6px; background: #fff; color: #43506a; font-size: 11px; font-weight: 700; }
+.office-key-hint span { margin-left: 5px; color: #7c879b; font-size: 12px; }
+.office-tool-button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 34px; padding: 0 10px; border: 1px solid #e3e8f0; border-radius: 8px; background: #fff; color: #4c5870; font-size: 11px; font-weight: 700; }
+.office-tool-button:hover { border-color: #bdcdf8; color: #305bd0; }
+.office-map-frame { overflow: hidden; border: 1px solid #e1e5eb; border-radius: 16px; background: #f4f3ee; box-shadow: 0 8px 24px #27324808; }
+.office-canvas { display: block; width: 100%; aspect-ratio: 1200 / 650; min-height: 320px; max-height: 660px; outline: none; }
+.office-map-legend { display: flex; align-items: center; flex-wrap: wrap; gap: 18px; padding: 12px 16px; border-top: 1px solid #e4e4dc; background: #fff; color: #7c879b; font-size: 11px; }
+.office-map-legend span { display: inline-flex; align-items: center; gap: 7px; }
+.office-map-legend i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; }
+.legend-self { background: #4f70e8; }
+.legend-peer { background: #8b7cf6; }
+.office-map-legend .legend-furniture { width: 12px; height: 9px; border-radius: 3px; background: #cfc8bb; }
+.office-bottom-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.office-info-card { display: flex; align-items: center; gap: 12px; min-width: 0; padding: 15px; border: 1px solid var(--border); border-radius: 12px; background: #fff; }
+.office-info-icon { display: grid; place-items: center; width: 37px; height: 37px; flex: 0 0 auto; border-radius: 10px; background: #edf2ff; color: #4f70e8; }
+.office-info-green { background: #eaf8f0; }
+.office-online-dot { width: 9px; height: 9px; border-radius: 50%; background: #31a56c; }
+.office-info-card strong { display: block; color: #354057; font-size: 12px; }
+.office-info-card p { margin: 5px 0 0; color: #8993a5; font-size: 10px; line-height: 1.5; overflow-wrap: anywhere; }
+.office-controls-card { justify-content: space-between; }
+.office-dpad { display: grid; grid-template-columns: repeat(2, 29px); gap: 3px; }
+.office-dpad button { display: grid; place-items: center; width: 29px; height: 25px; border: 1px solid #e2e7ef; border-radius: 6px; background: #f8faff; color: #50607b; touch-action: none; }
+.office-dpad button:active { background: #e5edff; }
+.office-footnote { margin: 0; color: #8993a5; font-size: 11px; line-height: 1.65; }
+@media (max-width: 1000px) { .office-bottom-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .office-controls-card { grid-column: 1 / -1; } }
+@media (max-width: 620px) { .office-heading { flex-direction: column; } .office-connection { white-space: normal; } .office-bottom-grid { grid-template-columns: 1fr; } .office-controls-card { grid-column: auto; } .office-canvas { min-height: 280px; } .office-toolbar-actions { width: 100%; } .office-tool-button { flex: 1; } .office-map-legend { gap: 10px; } }
