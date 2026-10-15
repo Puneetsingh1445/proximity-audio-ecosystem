@@ -11,6 +11,7 @@ const startServer = async () => {
 
     app.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);
+      console.log("my backend conect successfully")
     });
   } catch (error) {
     console.error("Backend startup failed:", error.message);
