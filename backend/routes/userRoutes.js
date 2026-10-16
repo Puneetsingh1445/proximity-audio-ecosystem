@@ -1,22 +1,31 @@
 const express = require("express");
 const bcrypt = require("bcryptjs");
+const mongoose = require("mongoose");
 const User = require("../models/User");
 
 const router = express.Router();
 
-// Register a new user
+// POST /api/users/register
 router.post("/register", async (req, res) => {
   try {
-    const { name, email, password } = req.body;
+    // 1. Validate request body
+    const { name, email, password } = req.body || {};
 
-    // Validate required fields
-    if (!name || !email || !password) {
+    if (
+      typeof name !== "string" ||
+      typeof email !== "string" ||
+      typeof password !== "string" ||
+      !name.trim() ||
+      !email.trim() ||
+      !password
+    ) {
       return res.status(400).json({
         success: false,
         message: "Name, email, and password are required",
       });
     }
 
+    // 2. Validate password length
     if (password.length < 8) {
       return res.status(400).json({
         success: false,
@@ -24,9 +33,29 @@ router.post("/register", async (req, res) => {
       });
     }
 
+    // 3. Normalize input
+    const normalizedName = name.trim();
     const normalizedEmail = email.trim().toLowerCase();
 
-    // Check if user already exists
+    // 4. Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+    if (!emailRegex.test(normalizedEmail)) {
+      return res.status(400).json({
+        success: false,
+        message: "Please provide a valid email address",
+      });
+    }
+
+    // 5. Check MongoDB connection
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(503).json({
+        success: false,
+        message: "MongoDB is not connected",
+      });
+    }
+
+    // 6. Check for an existing email
     const existingUser = await User.findOne({
       email: normalizedEmail,
     });
@@ -38,15 +67,17 @@ router.post("/register", async (req, res) => {
       });
     }
 
-    // Hash the password before saving it
+    // 7. Hash password before saving
     const passwordHash = await bcrypt.hash(password, 12);
 
+    // 8. Save the new user
     const user = await User.create({
-      name: name.trim(),
+      name: normalizedName,
       email: normalizedEmail,
       passwordHash,
     });
 
+    // 9. Return user data without the password hash
     return res.status(201).json({
       success: true,
       message: "User registered successfully",
@@ -59,6 +90,10 @@ router.post("/register", async (req, res) => {
       },
     });
   } catch (error) {
+    // Log the real error in the backend terminal
+    console.error("REGISTER ERROR:", error.stack || error);
+
+    // Handle duplicate email errors
     if (error.code === 11000) {
       return res.status(409).json({
         success: false,
@@ -66,7 +101,27 @@ router.post("/register", async (req, res) => {
       });
     }
 
-    console.error("Registration error:", error.message);
+    // Handle Mongoose validation errors
+    if (error.name === "ValidationError") {
+      return res.status(400).json({
+        success: false,
+        message: "User validation failed",
+        details: Object.values(error.errors).map(
+          (item) => item.message
+        ),
+      });
+    }
+
+    // Show diagnostic information only in development
+    if (process.env.NODE_ENV !== "production") {
+      return res.status(500).json({
+        success: false,
+        message: "Failed to register user",
+        debugError: error.message,
+        errorName: error.name,
+        errorCode: error.code || null,
+      });
+    }
 
     return res.status(500).json({
       success: false,
