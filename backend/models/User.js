@@ -54,7 +54,10 @@ timestamps: true,
 }
 );
 
-// Enable planar geospatial queries for virtual-office positions
-userSchema.index({ position: "2d" });
+// Enable planar geospatial queries for virtual-office positions.
+// min/max bounds match the canvas dimensions (1000 × 600 px).
+// Without these bounds the default range is [-180, 180] — any x > 180
+// (e.g. x=500) would be rejected by MongoDB with a MongoServerError.
+userSchema.index({ position: "2d" }, { min: 0, max: 1000 });
 
 module.exports = mongoose.model("User", userSchema);
