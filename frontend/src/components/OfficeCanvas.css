@@ -21,6 +21,7 @@
 .office-map-legend i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; }
 .legend-self { background: #4f70e8; }
 .legend-peer { background: #8b7cf6; }
+.legend-range { background: transparent; border: 2px dashed #4f70e8aa; }
 .office-map-legend .legend-furniture { width: 12px; height: 9px; border-radius: 3px; background: #cfc8bb; }
 .office-bottom-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .office-info-card { display: flex; align-items: center; gap: 12px; min-width: 0; padding: 15px; border: 1px solid var(--border); border-radius: 12px; background: #fff; }
