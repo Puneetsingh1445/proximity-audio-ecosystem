@@ -35,4 +35,4 @@
 .office-dpad button:active { background: #e5edff; }
 .office-footnote { margin: 0; color: #8993a5; font-size: 11px; line-height: 1.65; }
 @media (max-width: 1000px) { .office-bottom-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .office-controls-card { grid-column: 1 / -1; } }
-@media (max-width: 620px) { .office-heading { flex-direction: column; } .office-connection { white-space: normal; } .office-bottom-grid { grid-template-columns: 1fr; } .office-controls-card { grid-column: auto; } .office-canvas { min-height: 280px; } .office-toolbar-actions { width: 100%; } .office-tool-button { flex: 1; } .office-map-legend { gap: 10px; } }
+@media (max-width: 620px) { .office-heading { flex-direction: column; } .office-connection { white-space: normal; } .office-bottom-grid { grid-template-columns: 1fr; } .office-controls-card { grid-column: auto; } .office-toolbar-actions { width: 100%; } .office-tool-button { flex: 1; } .office-map-legend { gap: 10px; } }
