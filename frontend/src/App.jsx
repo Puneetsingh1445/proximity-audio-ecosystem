@@ -77,7 +77,7 @@ function SectionTitle({ eyebrow, title, description, action }) {
 
 export default function App() {
   const [activePage, setActivePage] = useState("overview");
-  const [people, setPeople] = useState(initialPeople);
+  const [people] = useState(initialPeople);
   const [rooms, setRooms] = useState(initialRooms);
   const [messages, setMessages] = useState(initialMessages);
   const [selectedPerson, setSelectedPerson] = useState(null);
