@@ -7,26 +7,37 @@ const MOVE_EVENT = import.meta.env.VITE_SOCKET_MOVE_EVENT || "player:move";
 const PLAYERS_EVENT = import.meta.env.VITE_SOCKET_PLAYERS_EVENT || "players:update";
 const LEAVE_EVENT = import.meta.env.VITE_SOCKET_LEAVE_EVENT || "player:leave";
 
+function normalizePlayer(player) {
+  const id = player?.userId ?? player?.id;
+  if (id == null || player?.x == null || player?.y == null) return null;
+  const x = Number(player.x);
+  const y = Number(player.y);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+  return { id: String(id), name: String(player.name || "Teammate"), x, y, color: player.color || "#8B7CF6" };
+}
+
 /**
- * Optional Socket.IO adapter for the ProxiSpeak office.
- * Event names and payloads are a proposed contract; align them with the backend team.
- * Without VITE_SOCKET_URL, the office intentionally runs in local demo mode.
+ * Optional Socket.IO adapter. Event names/payloads are a proposed contract
+ * (see SOCKET_CONTRACT.md). Without VITE_SOCKET_URL the office runs in demo mode.
  */
 export default function useOfficeSocket({ userId, displayName, getPosition }) {
   const socketRef = useRef(null);
+  const nameRef = useRef(displayName);
   const [remotePlayers, setRemotePlayers] = useState([]);
   const [status, setStatus] = useState(SOCKET_URL ? "connecting" : "demo");
+
+  useEffect(() => { nameRef.current = displayName; }, [displayName]);
 
   const publishPosition = useCallback((position) => {
     const socket = socketRef.current;
     if (!socket?.connected) return;
     socket.emit(MOVE_EVENT, {
       userId,
-      name: displayName,
+      name: nameRef.current,
       x: Math.round(position.x),
       y: Math.round(position.y),
     });
-  }, [displayName, userId]);
+  }, [userId]);
 
   useEffect(() => {
     if (!SOCKET_URL) return undefined;
@@ -46,45 +57,38 @@ export default function useOfficeSocket({ userId, displayName, getPosition }) {
       const position = getPosition();
       socket.emit(JOIN_EVENT, {
         userId,
-        name: displayName,
+        name: nameRef.current,
         x: Math.round(position.x),
         y: Math.round(position.y),
       });
     };
-    const handleDisconnect = () => setStatus("disconnected");
+    const handleDisconnect = () => {
+      setStatus("disconnected");
+      setRemotePlayers([]); // avoid ghost avatars while offline
+    };
     const handleConnectError = () => setStatus("disconnected");
     const handlePlayers = (payload) => {
-      const players = Array.isArray(payload) ? payload : payload?.players;
-      if (!Array.isArray(players)) return;
-      setRemotePlayers(players.filter((player) => {
-        const id = player.userId ?? player.id;
-        return id != null && String(id) !== String(userId)
-          && Number.isFinite(Number(player.x)) && Number.isFinite(Number(player.y));
-      }).map((player) => ({
-        id: String(player.userId ?? player.id),
-        name: String(player.name || "Teammate"),
-        x: Number(player.x),
-        y: Number(player.y),
-        color: player.color || "#8B7CF6",
-      })));
+      const list = Array.isArray(payload) ? payload : payload?.players;
+      if (!Array.isArray(list)) return;
+      setRemotePlayers(list.map(normalizePlayer).filter((p) => p && p.id !== String(userId)));
+    };
+    // Some backends send one-player deltas instead of a full list.
+    const handleMoved = (payload) => {
+      const id = payload?.userId ?? payload?.id;
+      if (id == null || String(id) === String(userId)) return;
+      setRemotePlayers((current) => {
+        const rest = current.filter((item) => item.id !== String(id));
+        if (payload.left) return rest;
+        const next = normalizePlayer(payload);
+        return next ? [...rest, next] : current;
+      });
     };
 
     socket.on("connect", handleConnect);
     socket.on("disconnect", handleDisconnect);
     socket.on("connect_error", handleConnectError);
     socket.on(PLAYERS_EVENT, handlePlayers);
-    // Some backends send one-player deltas instead of a full player list.
-    socket.on("player:moved", (player) => {
-      if (!player || (player.userId ?? player.id) == null) return;
-      const id = String(player.userId ?? player.id);
-      if (id === String(userId)) return;
-      setRemotePlayers((current) => {
-        const next = current.filter((item) => item.id !== id);
-        if (player.left) return next;
-        if (!Number.isFinite(Number(player.x)) || !Number.isFinite(Number(player.y))) return current;
-        return [...next, { id, name: String(player.name || "Teammate"), x: Number(player.x), y: Number(player.y), color: player.color || "#8B7CF6" }];
-      });
-    });
+    socket.on("player:moved", handleMoved);
 
     return () => {
       const position = getPosition();
@@ -93,10 +97,11 @@ export default function useOfficeSocket({ userId, displayName, getPosition }) {
       socket.off("disconnect", handleDisconnect);
       socket.off("connect_error", handleConnectError);
       socket.off(PLAYERS_EVENT, handlePlayers);
+      socket.off("player:moved", handleMoved);
       socket.disconnect();
       socketRef.current = null;
     };
-  }, [displayName, getPosition, userId]);
+  }, [getPosition, userId]);
 
   return { remotePlayers, connectionStatus: status, publishPosition };
 }
