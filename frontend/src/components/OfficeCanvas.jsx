@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Maximize2, RotateCcw, Volume2, VolumeX } from "lucide-react";
 import useOfficeSocket from "../hooks/useOfficeSocket.js";
-import { PROXIMITY_RADIUS, SpatialToneEngine, distanceBetween } from "../lib/spatialAudio.js";
+import { PROXIMITY_RADIUS, SpatialToneEngine, distanceBetween } from "../../spatialAudio.js";
 import "./OfficeCanvas.css";
+
 
 const WORLD = { width: 1200, height: 650 };
 const PLAYER_RADIUS = 15;
