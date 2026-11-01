@@ -1,5 +1,4 @@
-
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Activity,
   AudioLines,
@@ -75,7 +74,106 @@ function SectionTitle({ eyebrow, title, description, action }) {
   );
 }
 
+const authStyles = {
+  page: {
+    minHeight: "100vh",
+    display: "grid",
+    placeItems: "center",
+    padding: 24,
+    background: "#F4F5F8",
+    fontFamily: "DM Sans, system-ui, sans-serif",
+  },
+  card: {
+    width: "100%",
+    maxWidth: 420,
+    padding: 32,
+    borderRadius: 20,
+    background: "#FFFFFF",
+    boxShadow: "0 18px 55px rgba(25, 35, 55, 0.10)",
+    display: "flex",
+    flexDirection: "column",
+    boxSizing: "border-box",
+  },
+  brandIcon: {
+    width: 52,
+    height: 52,
+    display: "grid",
+    placeItems: "center",
+    borderRadius: 15,
+    background: "#E9EDFF",
+    color: "#4F70E8",
+    marginBottom: 18,
+  },
+  eyebrow: {
+    color: "#64748B",
+    fontSize: 11,
+    fontWeight: 800,
+    letterSpacing: 1.4,
+    margin: "0 0 8px",
+  },
+  title: { color: "#172033", fontSize: 27, margin: "0 0 8px" },
+  subtitle: { color: "#64748B", margin: "0 0 24px", fontSize: 14 },
+  label: { color: "#273248", fontWeight: 650, fontSize: 13, margin: "12px 0 7px" },
+  input: {
+    width: "100%",
+    boxSizing: "border-box",
+    padding: "12px 13px",
+    border: "1px solid #D8DEE9",
+    borderRadius: 10,
+    fontSize: 14,
+    outlineColor: "#4F70E8",
+  },
+  error: {
+    color: "#B42318",
+    background: "#FEF3F2",
+    padding: 10,
+    borderRadius: 8,
+    fontSize: 13,
+  },
+  submit: {
+    marginTop: 22,
+    border: 0,
+    borderRadius: 10,
+    padding: 13,
+    background: "#4F70E8",
+    color: "#FFFFFF",
+    fontWeight: 700,
+    fontSize: 15,
+    cursor: "pointer",
+  },
+  note: { color: "#7B8495", fontSize: 12, lineHeight: 1.5, marginTop: 18 },
+};
+
 export default function App() {
+  const [auth, setAuth] = useState(() => {
+    try {
+      const raw = localStorage.getItem("proxispeak:auth");
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      // Validate that the stored value has the shape we need
+      if (parsed?.token && parsed?.user?.id) return parsed;
+      return null;
+    } catch {
+      return null;
+    }
+  });
+  const [authLoading, setAuthLoading] = useState(true);
+  const [authView, setAuthView] = useState("login"); // "login" | "register"
+
+  // ── Login form state ──
+  const [loginEmail, setLoginEmail] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
+  const [loginError, setLoginError] = useState("");
+  const [loginBusy, setLoginBusy] = useState(false);
+
+  // ── Register form state ──
+  const [regName, setRegName] = useState("");
+  const [regEmail, setRegEmail] = useState("");
+  const [regPassword, setRegPassword] = useState("");
+  const [regError, setRegError] = useState("");
+  const [regBusy, setRegBusy] = useState(false);
+  const [regSuccess, setRegSuccess] = useState("");
+
   const [activePage, setActivePage] = useState("overview");
   const [people] = useState(initialPeople);
   const [rooms, setRooms] = useState(initialRooms);
@@ -89,11 +187,178 @@ export default function App() {
   const [muted, setMuted] = useState(true);
   const [notifications, setNotifications] = useState(true);
   const [profileName, setProfileName] = useState("Sam");
+
+  const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5055";
+
+  // Mark auth as resolved after the first render so we never flash the
+  // dashboard before localStorage has been read.
+  useEffect(() => {
+    setAuthLoading(false);
+  }, []);
+
+  useEffect(() => {
+    if (auth?.user?.name) {
+      setProfileName(auth.user.name);
+    }
+  }, [auth]);
   const [permission, setPermission] = useState("idle");
   const [micPermission, setMicPermission] = useState("idle");
   const [showNotifications, setShowNotifications] = useState(false);
   const [connectedPeople, setConnectedPeople] = useState([]);
   const [notice, setNotice] = useState("");
+
+  async function handleLogin(event) {
+    event.preventDefault();
+    setLoginError("");
+
+    if (!loginEmail.trim() || !loginPassword) {
+      setLoginError("Enter your email and password.");
+      return;
+    }
+
+    setLoginBusy(true);
+
+    try {
+      const response = await fetch(`${API_URL}/api/users/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: loginEmail.trim(),
+          password: loginPassword,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.token || !data.user?.id) {
+        throw new Error(data.message || "Login failed. Check your credentials.");
+      }
+
+      const savedAuth = {
+        token: data.token,
+        user: data.user,
+      };
+
+      localStorage.setItem("proxispeak:auth", JSON.stringify(savedAuth));
+      setAuth(savedAuth);
+      setProfileName(data.user.name || "User");
+      setActivePage("office");
+      setLoginPassword("");
+    } catch (error) {
+      setLoginError(
+        error.message || "Unable to connect to the backend. Check that it is running."
+      );
+    } finally {
+      setLoginBusy(false);
+    }
+  }
+
+  async function handleRegister(event) {
+    event.preventDefault();
+    setRegError("");
+    setRegSuccess("");
+
+    // ── Client-side validation (mirrors backend rules) ──
+    if (!regName.trim()) {
+      setRegError("Please enter your name.");
+      return;
+    }
+    if (!regEmail.trim()) {
+      setRegError("Please enter your email address.");
+      return;
+    }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(regEmail.trim().toLowerCase())) {
+      setRegError("Please enter a valid email address.");
+      return;
+    }
+    if (!regPassword) {
+      setRegError("Please enter a password.");
+      return;
+    }
+    if (regPassword.length < 8) {
+      setRegError("Password must be at least 8 characters.");
+      return;
+    }
+
+    setRegBusy(true);
+
+    try {
+      // Step 1 — Register the new account
+      const registerResponse = await fetch(`${API_URL}/api/users/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: regName.trim(),
+          email: regEmail.trim(),
+          password: regPassword,
+        }),
+      });
+
+      const registerData = await registerResponse.json();
+
+      if (!registerResponse.ok || !registerData.success) {
+        throw new Error(registerData.message || "Registration failed. Please try again.");
+      }
+
+      // Step 2 — Auto-login with the same credentials so the user
+      // lands directly in the dashboard without having to sign in manually.
+      const loginResponse = await fetch(`${API_URL}/api/users/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: regEmail.trim(),
+          password: regPassword,
+        }),
+      });
+
+      const loginData = await loginResponse.json();
+
+      if (!loginResponse.ok || !loginData.token || !loginData.user?.id) {
+        // Registration succeeded but auto-login failed — send user to login form
+        setRegSuccess(
+          "Account created! Please sign in with your new credentials."
+        );
+        setAuthView("login");
+        setLoginEmail(regEmail.trim());
+        setRegName("");
+        setRegEmail("");
+        setRegPassword("");
+        return;
+      }
+
+      // Step 3 — Persist auth and enter the dashboard
+      const savedAuth = { token: loginData.token, user: loginData.user };
+      localStorage.setItem("proxispeak:auth", JSON.stringify(savedAuth));
+      setAuth(savedAuth);
+      setProfileName(loginData.user.name || "User");
+      setActivePage("office");
+
+      // Reset register form
+      setRegName("");
+      setRegEmail("");
+      setRegPassword("");
+    } catch (error) {
+      setRegError(
+        error.message || "Unable to connect to the backend. Make sure it is running."
+      );
+    } finally {
+      setRegBusy(false);
+    }
+  }
+
+  function handleLogout() {
+    localStorage.removeItem("proxispeak:auth");
+    setAuth(null);
+    setLoginEmail("");
+    setLoginPassword("");
+    setLoginError("");
+    setActivePage("overview");
+    setProfileName("Sam");
+    // Note: showNotice is defined below — call it via setTimeout so it runs
+    // after state settles (avoids calling before definition in strict mode).
+    window.setTimeout(() => showNotice("You have been signed out."), 0);
+  }
 
   const showNotice = (message) => {
     setNotice(message);
@@ -234,6 +499,243 @@ export default function App() {
     );
   }
 
+  // ── Auth loading splash ──────────────────────────────────────────────────
+  // While we're hydrating auth from localStorage, show nothing to avoid
+  // flashing the login screen for users who are already signed in.
+  if (authLoading) {
+    return (
+      <div style={{
+        minHeight: "100vh",
+        display: "grid",
+        placeItems: "center",
+        background: "#F4F5F8",
+        fontFamily: "DM Sans, system-ui, sans-serif",
+        color: "#64748B",
+        fontSize: 15,
+      }}>
+        Loading ProxiSpeak…
+      </div>
+    );
+  }
+
+  // ── Login screen ─────────────────────────────────────────────────────────
+  // Render the login form whenever there is no valid auth in localStorage.
+  if (!auth) {
+    return (
+      <div style={authStyles.page}>
+        <div style={authStyles.card}>
+          <div style={authStyles.brandIcon}>
+            <AudioLines size={26} />
+          </div>
+          <p style={authStyles.eyebrow}>PROXISPEAK</p>
+
+          {/* ── LOGIN VIEW ─────────────────────────────────────────── */}
+          {authView === "login" && (
+            <>
+              <h1 style={authStyles.title}>Sign in</h1>
+              <p style={authStyles.subtitle}>
+                Enter your registered email and password to continue.
+              </p>
+
+              {regSuccess && (
+                <p
+                  style={{
+                    ...authStyles.error,
+                    color: "#0d6b3d",
+                    background: "#ecfdf5",
+                    marginBottom: 12,
+                  }}
+                  role="status"
+                >
+                  {regSuccess}
+                </p>
+              )}
+
+              <form onSubmit={handleLogin} noValidate>
+                <label style={authStyles.label} htmlFor="login-email">
+                  Email address
+                </label>
+                <input
+                  id="login-email"
+                  type="email"
+                  autoComplete="email"
+                  style={authStyles.input}
+                  value={loginEmail}
+                  onChange={(e) => setLoginEmail(e.target.value)}
+                  placeholder="you@example.com"
+                  disabled={loginBusy}
+                  required
+                />
+
+                <label style={authStyles.label} htmlFor="login-password">
+                  Password
+                </label>
+                <input
+                  id="login-password"
+                  type="password"
+                  autoComplete="current-password"
+                  style={authStyles.input}
+                  value={loginPassword}
+                  onChange={(e) => setLoginPassword(e.target.value)}
+                  placeholder="••••••••"
+                  disabled={loginBusy}
+                  required
+                />
+
+                {loginError && (
+                  <p style={{ ...authStyles.error, marginTop: 12 }} role="alert">
+                    {loginError}
+                  </p>
+                )}
+
+                <button
+                  type="submit"
+                  style={{
+                    ...authStyles.submit,
+                    opacity: loginBusy ? 0.7 : 1,
+                    width: "100%",
+                  }}
+                  disabled={loginBusy}
+                >
+                  {loginBusy ? "Signing in…" : "Sign in"}
+                </button>
+              </form>
+
+              <p style={authStyles.note}>
+                Don&apos;t have an account?{" "}
+                <button
+                  style={{
+                    background: "none",
+                    border: "none",
+                    color: "#4F70E8",
+                    fontWeight: 700,
+                    fontSize: 12,
+                    cursor: "pointer",
+                    padding: 0,
+                    textDecoration: "underline",
+                  }}
+                  onClick={() => {
+                    setLoginError("");
+                    setRegError("");
+                    setRegSuccess("");
+                    setAuthView("register");
+                  }}
+                >
+                  Create one
+                </button>
+              </p>
+            </>
+          )}
+
+          {/* ── REGISTER VIEW ──────────────────────────────────────── */}
+          {authView === "register" && (
+            <>
+              <h1 style={authStyles.title}>Create account</h1>
+              <p style={authStyles.subtitle}>
+                Fill in the details below to get started with ProxiSpeak.
+              </p>
+
+              <form onSubmit={handleRegister} noValidate>
+                <label style={authStyles.label} htmlFor="reg-name">
+                  Full name
+                </label>
+                <input
+                  id="reg-name"
+                  type="text"
+                  autoComplete="name"
+                  style={authStyles.input}
+                  value={regName}
+                  onChange={(e) => setRegName(e.target.value)}
+                  placeholder="Jane Smith"
+                  disabled={regBusy}
+                  required
+                />
+
+                <label style={authStyles.label} htmlFor="reg-email">
+                  Email address
+                </label>
+                <input
+                  id="reg-email"
+                  type="email"
+                  autoComplete="email"
+                  style={authStyles.input}
+                  value={regEmail}
+                  onChange={(e) => setRegEmail(e.target.value)}
+                  placeholder="you@example.com"
+                  disabled={regBusy}
+                  required
+                />
+
+                <label style={authStyles.label} htmlFor="reg-password">
+                  Password
+                </label>
+                <input
+                  id="reg-password"
+                  type="password"
+                  autoComplete="new-password"
+                  style={authStyles.input}
+                  value={regPassword}
+                  onChange={(e) => setRegPassword(e.target.value)}
+                  placeholder="At least 8 characters"
+                  disabled={regBusy}
+                  required
+                />
+
+                {regError && (
+                  <p style={{ ...authStyles.error, marginTop: 12 }} role="alert">
+                    {regError}
+                  </p>
+                )}
+
+                <button
+                  type="submit"
+                  style={{
+                    ...authStyles.submit,
+                    opacity: regBusy ? 0.7 : 1,
+                    width: "100%",
+                  }}
+                  disabled={regBusy}
+                >
+                  {regBusy ? "Creating account…" : "Create account"}
+                </button>
+              </form>
+
+              <p style={authStyles.note}>
+                Already have an account?{" "}
+                <button
+                  style={{
+                    background: "none",
+                    border: "none",
+                    color: "#4F70E8",
+                    fontWeight: 700,
+                    fontSize: 12,
+                    cursor: "pointer",
+                    padding: 0,
+                    textDecoration: "underline",
+                  }}
+                  onClick={() => {
+                    setRegError("");
+                    setLoginError("");
+                    setAuthView("login");
+                  }}
+                >
+                  Sign in instead
+                </button>
+              </p>
+            </>
+          )}
+        </div>
+
+        {notice && (
+          <div className="toast" role="status" style={{ position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)" }}>
+            <Check size={17} /> {notice}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ── Authenticated dashboard ───────────────────────────────────────────────
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -267,6 +769,13 @@ export default function App() {
             <div className="profile-copy"><strong>{profileName}</strong><span>My profile</span></div>
             <Settings size={17} />
           </button>
+          <button
+            className="button button-outline button-small"
+            onClick={handleLogout}
+            style={{ width: "100%", marginTop: 10 }}
+          >
+            Sign out
+          </button>
         </div>
       </aside>
 
@@ -275,7 +784,9 @@ export default function App() {
           <div className="mobile-brand"><AudioLines size={23} /> ProxiSpeak</div>
           <div className="breadcrumb">Workspace <ChevronRight size={14} /> <strong>{pageTitle}</strong></div>
           <div className="topbar-actions">
-            <span className="connection-status"><span /> Demo mode</span>
+            <span className="connection-status">
+              <span /> {auth?.user?.name ? `Signed in as ${auth.user.name}` : "Signed in"}
+            </span>
             <div className="notification-wrap">
               <button className="icon-button" aria-label="Notifications" onClick={() => setShowNotifications(!showNotifications)}>
                 <Bell size={19} />
@@ -294,7 +805,11 @@ export default function App() {
 
         <div className="page-content">
           {activePage === "office" && (
-            <OfficeCanvas displayName={profileName} />
+            <OfficeCanvas
+              displayName={auth?.user?.name || profileName}
+              userId={auth?.user?.id}
+              token={auth?.token}
+            />
           )}
           {activePage === "overview" && (
             <>

@@ -5,8 +5,21 @@ const userRoutes = require("./routes/userRoutes");
 
 const app = express();
 
-// Middleware
-app.use(cors());
+// Allow requests from the configured frontend origin.
+// Socket.IO CORS is configured separately in realtime/officeSocket.js.
+const FRONTEND_ORIGIN = process.env.FRONTEND_URL || "http://localhost:5173";
+
+app.use(
+  cors({
+    origin: FRONTEND_ORIGIN,
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+    credentials: true,
+  })
+);
+
+console.log(`HTTP CORS allowed origin: ${FRONTEND_ORIGIN}`);
+
 app.use(express.json());
 
 // Health check API
