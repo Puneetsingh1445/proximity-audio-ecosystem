@@ -35,5 +35,35 @@
 .office-dpad button { display: grid; place-items: center; width: 29px; height: 25px; border: 1px solid #e2e7ef; border-radius: 6px; background: #f8faff; color: #50607b; touch-action: none; }
 .office-dpad button:active { background: #e5edff; }
 .office-footnote { margin: 0; color: #8993a5; font-size: 11px; line-height: 1.65; }
+.office-footnote--warn { color: #a45c46; background: #fff8f5; border: 1px solid #f4dfd7; border-radius: 8px; padding: 8px 12px; }
+.office-footnote--info { color: #2e8157; background: #f2fbf5; border: 1px solid #d9f0e1; border-radius: 8px; padding: 8px 12px; }
 @media (max-width: 1000px) { .office-bottom-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .office-controls-card { grid-column: 1 / -1; } }
 @media (max-width: 620px) { .office-heading { flex-direction: column; } .office-connection { white-space: normal; } .office-bottom-grid { grid-template-columns: 1fr; } .office-controls-card { grid-column: auto; } .office-toolbar-actions { width: 100%; } .office-tool-button { flex: 1; } .office-map-legend { gap: 10px; } }
+
+/* ── Voice controls ─────────────────────────────────────────────────────────── */
+.office-tool-button--voice { border-color: #d9e8ff; background: #f0f6ff; color: #305bd0; }
+.office-tool-button--voice:hover { border-color: #305bd0; background: #e0ecff; }
+.office-tool-button--voice:disabled { opacity: 0.6; cursor: not-allowed; }
+.office-tool-button--active { border-color: #d9f0e1; background: #f2fbf5; color: #2e8157; }
+.office-tool-button--active:hover { border-color: #31a56c; background: #e8f9f1; }
+.office-tool-button--muted { border-color: #f4dfd7; background: #fff8f5; color: #a45c46; }
+.office-tool-button--muted:hover { border-color: #d97757; }
+
+.office-voice-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  white-space: nowrap;
+  border: 1px solid #e5eaf1;
+  background: #f9fafc;
+  color: #657188;
+}
+.office-voice-granted  { background: #f2fbf5; border-color: #d9f0e1; color: #2e8157; }
+.office-voice-denied   { background: #fff8f5; border-color: #f4dfd7; color: #a45c46; }
+.office-voice-error    { background: #fff8f5; border-color: #f4dfd7; color: #a45c46; }
+.office-voice-requesting { background: #fefdf3; border-color: #f0e8a0; color: #7a6c10; }
+

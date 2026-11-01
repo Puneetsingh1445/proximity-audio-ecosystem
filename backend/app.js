@@ -7,18 +7,44 @@ const app = express();
 
 // Allow requests from the configured frontend origin.
 // Socket.IO CORS is configured separately in realtime/officeSocket.js.
-const FRONTEND_ORIGIN = process.env.FRONTEND_URL || "http://localhost:5173";
+//
+// Vite sometimes uses port 5174 when 5173 is already taken.
+// We accept both the configured URL and the adjacent port so a port
+// shift never causes a hard-to-diagnose "Failed to fetch" error.
+const CONFIGURED_ORIGIN = process.env.FRONTEND_URL || "http://localhost:5174";
+
+// Build the allowed-origins set from the configured URL.
+// e.g. FRONTEND_URL=http://localhost:5174 → allow 5173 AND 5174.
+function buildAllowedOrigins(base) {
+  try {
+    const url = new URL(base);
+    const port = parseInt(url.port, 10);
+    const origins = new Set([base]);
+    // Also allow the neighbouring Vite port (5173 ↔ 5174).
+    if (port === 5173) origins.add(`${url.protocol}//${url.hostname}:5174`);
+    if (port === 5174) origins.add(`${url.protocol}//${url.hostname}:5173`);
+    return origins;
+  } catch {
+    return new Set([base]);
+  }
+}
+
+const ALLOWED_ORIGINS = buildAllowedOrigins(CONFIGURED_ORIGIN);
+console.log("HTTP CORS allowed origins:", [...ALLOWED_ORIGINS].join(", "));
 
 app.use(
   cors({
-    origin: FRONTEND_ORIGIN,
+    origin: (origin, callback) => {
+      // Allow server-to-server requests (no Origin header) and Postman.
+      if (!origin) return callback(null, true);
+      if (ALLOWED_ORIGINS.has(origin)) return callback(null, true);
+      callback(new Error(`CORS: origin ${origin} not allowed`));
+    },
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
     credentials: true,
   })
 );
-
-console.log(`HTTP CORS allowed origin: ${FRONTEND_ORIGIN}`);
 
 app.use(express.json());
 

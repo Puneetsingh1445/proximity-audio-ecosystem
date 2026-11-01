@@ -158,5 +158,9 @@ export default function useOfficeSocket({
     remotePlayers,
     connectionStatus: status,
     publishPosition,
+    // Expose the socket so useSpatialAudio can attach signaling listeners
+    // without opening a second connection.
+    socket: socketRef.current,
+    socketRef,
   };
 }

@@ -6,12 +6,15 @@ import {
   ArrowRight,
   ArrowUp,
   Maximize2,
+  Mic,
+  MicOff,
   RotateCcw,
   Volume2,
   VolumeX,
 } from "lucide-react";
 
 import useOfficeSocket from "../hooks/useOfficeSocket.js";
+import useSpatialAudio from "../hooks/useSpatialAudio.js";
 import {
   PROXIMITY_RADIUS,
   SpatialToneEngine,
@@ -290,11 +293,33 @@ export default function OfficeCanvas({
     remotePlayers,
     connectionStatus,
     publishPosition,
+    socketRef,
   } = useOfficeSocket({
     userId,
     displayName,
     token,
     getPosition,
+  });
+
+  // WebRTC spatial audio — uses the same socket for signaling.
+  const isAuthenticated =
+    connectionStatus !== "unauthenticated" &&
+    connectionStatus !== "demo";
+
+  const {
+    micStatus,
+    muted,
+    voiceActive,
+    connectedPeers,
+    joinVoice,
+    toggleMute,
+    updateProximityVolume,
+  } = useSpatialAudio({
+    socketRef,
+    userId,
+    position: worldRef.current,
+    remotePlayers,
+    enabled: isAuthenticated && connectionStatus === "connected",
   });
 
   // Use sample players only when authentication is unavailable.
@@ -525,13 +550,17 @@ export default function OfficeCanvas({
         }
       }
 
-      // Update spatial audio.
-      if (
-        engineRef.current &&
-        time - lastAudio > 50
-      ) {
+      // Update audio engines every 50 ms.
+      if (time - lastAudio > 50) {
         lastAudio = time;
-        engineRef.current.update(current, drawn);
+
+        // Test-tone spatial audio engine (demo mode).
+        if (engineRef.current) {
+          engineRef.current.update(current, drawn);
+        }
+
+        // WebRTC proximity volume (real voice).
+        updateProximityVolume(current, drawn);
       }
 
       // Draw office background.
@@ -807,6 +836,65 @@ export default function OfficeCanvas({
 
         <div className="office-toolbar-actions">
 
+          {/* ── Voice controls ── */}
+          {isAuthenticated && (
+            <>
+              {!voiceActive ? (
+                <button
+                  id="voice-join-btn"
+                  className="office-tool-button office-tool-button--voice"
+                  onClick={joinVoice}
+                  disabled={micStatus === "requesting"}
+                  title="Join proximity voice chat"
+                >
+                  <Mic size={15} />
+                  {micStatus === "requesting"
+                    ? "Requesting mic…"
+                    : micStatus === "denied"
+                    ? "Mic denied"
+                    : micStatus === "error"
+                    ? "Mic error"
+                    : "Join voice"}
+                </button>
+              ) : (
+                <button
+                  id="voice-mute-btn"
+                  className={`office-tool-button${
+                    muted ? " office-tool-button--muted" : " office-tool-button--active"
+                  }`}
+                  onClick={toggleMute}
+                  title={muted ? "Unmute microphone" : "Mute microphone"}
+                >
+                  {muted ? <MicOff size={15} /> : <Mic size={15} />}
+                  {muted ? "Unmute" : "Mute"}
+                </button>
+              )}
+
+              <span
+                id="voice-status-badge"
+                className={`office-voice-badge office-voice-${micStatus}`}
+                title={`Voice: ${micStatus}${
+                  connectedPeers.length
+                    ? ` · ${connectedPeers.length} connected`
+                    : ""
+                }`}
+              >
+                {micStatus === "granted" && !muted
+                  ? "🎙 Live"
+                  : micStatus === "granted" && muted
+                  ? "🔇 Muted"
+                  : micStatus === "requesting"
+                  ? "⏳ …"
+                  : micStatus === "denied"
+                  ? "🚫 No mic"
+                  : micStatus === "error"
+                  ? "⚠ Error"
+                  : "🎙 Off"}
+              </span>
+            </>
+          )}
+
+          {/* ── Test tone button ── */}
           <button
             className="office-tool-button"
             onClick={toggleAudioTest}
@@ -847,6 +935,19 @@ export default function OfficeCanvas({
       {audioError && (
         <p className="office-footnote" role="alert">
           {audioError}
+        </p>
+      )}
+
+      {micStatus === "denied" && (
+        <p className="office-footnote office-footnote--warn" role="alert">
+          🚫 Microphone permission denied. Allow access in your browser's site
+          settings and refresh to use proximity voice.
+        </p>
+      )}
+
+      {micStatus === "granted" && connectedPeers.length === 0 && (
+        <p className="office-footnote office-footnote--info">
+          🎙 Voice is active. Move within 250 px of a teammate to hear them.
         </p>
       )}
 
@@ -959,11 +1060,10 @@ export default function OfficeCanvas({
       </div>
 
       <p className="office-footnote">
-        Frontend milestone: movement, collisions, earshot radius
-        and a test-tone spatial audio check are implemented.
-        The audio test plays local tones, not WebRTC voice.
-        Live shared positions and voice require the backend
-        and signaling to match the documented contract.
+        Task 7: Real-time WebRTC proximity voice is active when authenticated.
+        Click <strong>Join voice</strong> to start. Volume fades from 100 px
+        (full) to 250 px (silent). The <em>Audio test</em> button plays local
+        tones only — it does not use WebRTC.
       </p>
 
     </section>
