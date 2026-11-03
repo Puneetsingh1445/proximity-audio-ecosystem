@@ -1,3 +1,4 @@
+
 const express = require("express");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
@@ -5,14 +6,20 @@ const mongoose = require("mongoose");
 const User = require("../models/User");
 const authenticate = require("../middleware/authenticate");
 
+const {
+  loginLimiter,
+  registerLimiter,
+} = require("../middleware/rateLimiters");
+
 const router = express.Router();
 
 // POST /api/users/register
-router.post("/register", async (req, res) => {
+// Maximum 10 registration attempts per 15 minutes
+router.post("/register", registerLimiter, async (req, res) => {
   try {
-    // 1. Validate request body
     const { name, email, password } = req.body || {};
 
+    // Validate request body
     if (
       typeof name !== "string" ||
       typeof email !== "string" ||
@@ -27,7 +34,7 @@ router.post("/register", async (req, res) => {
       });
     }
 
-    // 2. Validate password length
+    // Validate password length
     if (password.length < 8) {
       return res.status(400).json({
         success: false,
@@ -35,11 +42,11 @@ router.post("/register", async (req, res) => {
       });
     }
 
-    // 3. Normalize input
+    // Normalize input
     const normalizedName = name.trim();
     const normalizedEmail = email.trim().toLowerCase();
 
-    // 4. Validate email format
+    // Validate email format
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
     if (!emailRegex.test(normalizedEmail)) {
@@ -49,7 +56,7 @@ router.post("/register", async (req, res) => {
       });
     }
 
-    // 5. Check MongoDB connection
+    // Check MongoDB connection
     if (mongoose.connection.readyState !== 1) {
       return res.status(503).json({
         success: false,
@@ -57,7 +64,7 @@ router.post("/register", async (req, res) => {
       });
     }
 
-    // 6. Check for an existing email
+    // Check for an existing email
     const existingUser = await User.findOne({
       email: normalizedEmail,
     });
@@ -69,17 +76,17 @@ router.post("/register", async (req, res) => {
       });
     }
 
-    // 7. Hash password before saving
+    // Hash password before saving
     const passwordHash = await bcrypt.hash(password, 12);
 
-    // 8. Save the new user
+    // Save the new user
     const user = await User.create({
       name: normalizedName,
       email: normalizedEmail,
       passwordHash,
     });
 
-    // 9. Return user data without the password hash
+    // Return safe user data
     return res.status(201).json({
       success: true,
       message: "User registered successfully",
@@ -92,7 +99,6 @@ router.post("/register", async (req, res) => {
       },
     });
   } catch (error) {
-    // Log the real error in the backend terminal
     console.error("REGISTER ERROR:", error.stack || error);
 
     // Handle duplicate email errors
@@ -114,7 +120,7 @@ router.post("/register", async (req, res) => {
       });
     }
 
-    // Show diagnostic information only in development
+    // Development diagnostics
     if (process.env.NODE_ENV !== "production") {
       return res.status(500).json({
         success: false,
@@ -133,9 +139,10 @@ router.post("/register", async (req, res) => {
 });
 
 // POST /api/users/login
-router.post("/login", async (req, res) => {
+// Maximum 10 login attempts per 15 minutes
+router.post("/login", loginLimiter, async (req, res) => {
   try {
-    // 1. Validate request body
+    // Validate request body
     const { email, password } = req.body || {};
 
     if (
@@ -150,10 +157,10 @@ router.post("/login", async (req, res) => {
       });
     }
 
-    // 2. Normalize email — must match the normalization used during registration
+    // Normalize email
     const normalizedEmail = email.trim().toLowerCase();
 
-    // 3. Check MongoDB connection before querying
+    // Check MongoDB connection
     if (mongoose.connection.readyState !== 1) {
       return res.status(503).json({
         success: false,
@@ -161,18 +168,12 @@ router.post("/login", async (req, res) => {
       });
     }
 
-    // 4. Look up the user and explicitly fetch the passwordHash field.
-    //    The User schema marks passwordHash as { select: false }, which means
-    //    Mongoose will NEVER return it in a normal query.
-    //    Adding .select("+passwordHash") overrides that for this one query only,
-    //    so bcrypt.compare() receives the actual hash instead of undefined.
-    const user = await User.findOne({ email: normalizedEmail }).select(
-      "+passwordHash"
-    );
+    // Fetch passwordHash explicitly
+    const user = await User.findOne({
+      email: normalizedEmail,
+    }).select("+passwordHash");
 
-    // 5. If no user found, respond with a generic error.
-    //    We do NOT say "email not found" — that would let attackers enumerate
-    //    which emails are registered.
+    // Generic error prevents email enumeration
     if (!user) {
       return res.status(401).json({
         success: false,
@@ -180,9 +181,11 @@ router.post("/login", async (req, res) => {
       });
     }
 
-    // 6. Compare the plain-text password against the stored hash.
-    //    bcrypt.compare() is constant-time, preventing timing attacks.
-    const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
+    // Compare password
+    const isPasswordValid = await bcrypt.compare(
+      password,
+      user.passwordHash
+    );
 
     if (!isPasswordValid) {
       return res.status(401).json({
@@ -191,18 +194,19 @@ router.post("/login", async (req, res) => {
       });
     }
 
-    // 7. Confirm JWT_SECRET is configured — fail loudly in dev, silently in prod
+    // Verify JWT_SECRET
     const jwtSecret = process.env.JWT_SECRET;
+
     if (!jwtSecret) {
-      console.error("LOGIN ERROR: JWT_SECRET is not set in environment");
+      console.error("LOGIN ERROR: JWT_SECRET is not set");
+
       return res.status(500).json({
         success: false,
         message: "Authentication service is misconfigured",
       });
     }
 
-    // 8. Sign the JWT. The payload contains only safe, non-sensitive data.
-    //    Never put passwordHash, raw password, or other secrets in the payload.
+    // Generate JWT
     const token = jwt.sign(
       {
         id: user._id,
@@ -215,7 +219,7 @@ router.post("/login", async (req, res) => {
       }
     );
 
-    // 9. Return the token and safe user data — never return passwordHash
+    // Return token and safe user data
     return res.status(200).json({
       success: true,
       message: "Login successful",
@@ -229,11 +233,8 @@ router.post("/login", async (req, res) => {
       },
     });
   } catch (error) {
-    // Log the full error server-side for debugging
     console.error("LOGIN ERROR:", error.stack || error);
 
-    // In development, return extra context to help with debugging.
-    // In production, never reveal internal error details.
     if (process.env.NODE_ENV !== "production") {
       return res.status(500).json({
         success: false,
@@ -250,20 +251,14 @@ router.post("/login", async (req, res) => {
   }
 });
 
-// ─── Profile routes (require a valid JWT) ────────────────────────────────────
+// ─── Profile routes (require a valid JWT) ─────────────────────
 
 // GET /api/users/me
-// Returns the authenticated user's own profile.
-// The authenticate middleware must run first — it populates req.user.id from
-// the token so we know exactly which document to fetch.
 router.get("/me", authenticate, async (req, res) => {
   try {
-    // req.user.id comes from the verified JWT payload (set in authenticate.js).
-    // passwordHash is excluded automatically because the schema sets select:false.
     const user = await User.findById(req.user.id);
 
     if (!user) {
-      // Covers the edge case where a user was deleted after their token was issued
       return res.status(404).json({
         success: false,
         message: "User not found.",
@@ -301,19 +296,12 @@ router.get("/me", authenticate, async (req, res) => {
 });
 
 // PATCH /api/users/me
-// Allows the authenticated user to update only their name and/or position.
-// Any other field sent in the body (email, passwordHash, _id, etc.) is silently
-// ignored — we never touch it — because we build the update object manually
-// from an explicit allowlist rather than spreading req.body directly.
 router.patch("/me", authenticate, async (req, res) => {
   try {
     const body = req.body || {};
-
-    // ── Build an allowlisted update object ───────────────────────────────────
-    // Only fields in this list can ever be changed through this endpoint.
-    // Email, passwordHash, _id, createdAt, and __v are never touched.
     const allowedUpdates = {};
 
+    // Only allow name and position updates
     if (body.name !== undefined) {
       if (typeof body.name !== "string" || !body.name.trim()) {
         return res.status(400).json({
@@ -321,12 +309,11 @@ router.patch("/me", authenticate, async (req, res) => {
           message: "Name must be a non-empty string.",
         });
       }
+
       allowedUpdates.name = body.name.trim();
     }
 
     if (body.position !== undefined) {
-      // Pre-validate shape before handing off to Mongoose so we can return a
-      // clear 400 instead of a cryptic Mongoose CastError.
       if (
         !Array.isArray(body.position) ||
         body.position.length !== 2 ||
@@ -338,10 +325,10 @@ router.patch("/me", authenticate, async (req, res) => {
           message: "Position must be an array of two finite numbers: [x, y].",
         });
       }
+
       allowedUpdates.position = body.position;
     }
 
-    // Reject requests that contain no recognised updatable fields
     if (Object.keys(allowedUpdates).length === 0) {
       return res.status(400).json({
         success: false,
@@ -349,9 +336,6 @@ router.patch("/me", authenticate, async (req, res) => {
       });
     }
 
-    // ── Apply the update ──────────────────────────────────────────────────────
-    // { new: true }          → return the document after the update, not before
-    // { runValidators: true } → re-run schema validators (e.g. position bounds)
     const updatedUser = await User.findByIdAndUpdate(
       req.user.id,
       { $set: allowedUpdates },
@@ -378,22 +362,22 @@ router.patch("/me", authenticate, async (req, res) => {
       },
     });
   } catch (error) {
-    // Log the full error server-side (safe — only visible in your terminal)
     console.error("PATCH /me ERROR:", error.stack || error);
 
-    // Mongoose schema validation failed (e.g. position out of canvas bounds)
     if (error.name === "ValidationError") {
       return res.status(400).json({
         success: false,
         message: "Validation failed.",
-        details: Object.values(error.errors).map((e) => e.message),
+        details: Object.values(error.errors).map(
+          (e) => e.message
+        ),
       });
     }
 
-    // MongoServerError (e.g. geospatial index range violation).
-    // IMPORTANT: error.message for MongoServerError can contain the raw
-    // document string, which includes passwordHash. Never expose it to clients.
-    if (error.name === "MongoServerError" && process.env.NODE_ENV !== "production") {
+    if (
+      error.name === "MongoServerError" &&
+      process.env.NODE_ENV !== "production"
+    ) {
       return res.status(500).json({
         success: false,
         message: "Failed to update profile",
@@ -417,20 +401,14 @@ router.patch("/me", authenticate, async (req, res) => {
   }
 });
 
-// ─── Geolocation routes (require a valid JWT) ────────────────────────────────
+// ─── Geolocation routes (require a valid JWT) ─────────────────
 
 // PUT /api/users/me/position
-// Updates the authenticated user's virtual-office position on the 1000 × 600 px
-// canvas.  A dedicated route (rather than re-using PATCH /me) keeps the intent
-// explicit and lets us add position-specific middleware later without touching
-// the general profile update logic.
 router.put("/me/position", authenticate, async (req, res) => {
   try {
     const { position } = req.body || {};
 
-    // ── 1. Shape validation ────────────────────────────────────────────────
-    // We check this before touching the database so the client gets a clear
-    // 400 rather than a Mongoose CastError or a MongoServerError.
+    // Validate position shape
     if (
       !Array.isArray(position) ||
       position.length !== 2 ||
@@ -445,9 +423,7 @@ router.put("/me/position", authenticate, async (req, res) => {
 
     const [x, y] = position;
 
-    // ── 2. Canvas-boundary validation ─────────────────────────────────────
-    // Mirrors the schema validator so out-of-range values are caught here
-    // (with a friendly message) before Mongoose or the 2d index rejects them.
+    // Validate canvas boundaries
     if (x < 0 || x > 1000 || y < 0 || y > 600) {
       return res.status(400).json({
         success: false,
@@ -456,7 +432,7 @@ router.put("/me/position", authenticate, async (req, res) => {
       });
     }
 
-    // ── 3. Persist ────────────────────────────────────────────────────────
+    // Save position
     const updatedUser = await User.findByIdAndUpdate(
       req.user.id,
       { $set: { position: [x, y] } },
@@ -488,12 +464,12 @@ router.put("/me/position", authenticate, async (req, res) => {
       return res.status(400).json({
         success: false,
         message: "Validation failed.",
-        details: Object.values(error.errors).map((e) => e.message),
+        details: Object.values(error.errors).map(
+          (e) => e.message
+        ),
       });
     }
 
-    // MongoServerError: never echo error.message — it can contain the raw
-    // document including passwordHash.
     if (
       error.name === "MongoServerError" &&
       process.env.NODE_ENV !== "production"
@@ -522,19 +498,8 @@ router.put("/me/position", authenticate, async (req, res) => {
 });
 
 // GET /api/users/nearby?radius=<pixels>
-// Returns all other users whose virtual-office position is within `radius`
-// pixels of the authenticated user's current position.
-//
-// Distance is Euclidean (straight-line, pixel space) because MongoDB's "2d"
-// index operates on a flat plane — matching the virtual-canvas coordinate
-// system defined in User.js.
-//
-// The query uses $near so MongoDB leverages the "2d" index and returns
-// documents already sorted nearest-first.  $maxDistance is in the same unit
-// as the coordinates (pixels), so radius=100 means 100 px.
 router.get("/nearby", authenticate, async (req, res) => {
   try {
-    // ── 1. Parse and validate radius ──────────────────────────────────────
     const rawRadius = req.query.radius;
 
     if (rawRadius === undefined || rawRadius === "") {
@@ -553,9 +518,8 @@ router.get("/nearby", authenticate, async (req, res) => {
       });
     }
 
-    // Cap radius to the canvas diagonal so callers can't pass Infinity-like
-    // values (≈ sqrt(1000² + 600²) ≈ 1166 px).
     const MAX_RADIUS = 1166;
+
     if (radius > MAX_RADIUS) {
       return res.status(400).json({
         success: false,
@@ -563,7 +527,7 @@ router.get("/nearby", authenticate, async (req, res) => {
       });
     }
 
-    // ── 2. Fetch the requesting user's current position ───────────────────
+    // Fetch current user's position
     const me = await User.findById(req.user.id).select("position");
 
     if (!me) {
@@ -575,11 +539,7 @@ router.get("/nearby", authenticate, async (req, res) => {
 
     const [myX, myY] = me.position;
 
-    // ── 3. Query nearby users using the "2d" index ────────────────────────
-    // $near on a 2d-indexed field returns documents sorted by ascending
-    // distance.  $maxDistance uses the same unit as the coordinates (pixels).
-    // We exclude the requesting user with { _id: { $ne: req.user.id } }.
-    // passwordHash is excluded automatically (select: false in schema).
+    // Find nearby users using the MongoDB 2d index
     const nearbyUsers = await User.find({
       _id: { $ne: req.user.id },
       position: {
@@ -621,5 +581,3 @@ router.get("/nearby", authenticate, async (req, res) => {
 });
 
 module.exports = router;
-
-

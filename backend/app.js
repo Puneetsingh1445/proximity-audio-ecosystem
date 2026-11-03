@@ -1,44 +1,54 @@
+
 const express = require("express");
 const cors = require("cors");
-const User = require("./models/User");
 const userRoutes = require("./routes/userRoutes");
+
+const { generalApiLimiter } = require("./middleware/rateLimiters");
 
 const app = express();
 
-// Allow requests from the configured frontend origin.
-// Socket.IO CORS is configured separately in realtime/officeSocket.js.
-//
-// Vite sometimes uses port 5174 when 5173 is already taken.
-// We accept both the configured URL and the adjacent port so a port
-// shift never causes a hard-to-diagnose "Failed to fetch" error.
-const CONFIGURED_ORIGIN = process.env.FRONTEND_URL || "http://localhost:5174";
+const CONFIGURED_ORIGIN =
+  process.env.FRONTEND_URL || "http://localhost:5174";
 
-// Build the allowed-origins set from the configured URL.
-// e.g. FRONTEND_URL=http://localhost:5174 → allow 5173 AND 5174.
 function buildAllowedOrigins(base) {
   try {
     const url = new URL(base);
     const port = parseInt(url.port, 10);
     const origins = new Set([base]);
-    // Also allow the neighbouring Vite port (5173 ↔ 5174).
-    if (port === 5173) origins.add(`${url.protocol}//${url.hostname}:5174`);
-    if (port === 5174) origins.add(`${url.protocol}//${url.hostname}:5173`);
+
+    if (port === 5173) {
+      origins.add(`${url.protocol}//${url.hostname}:5174`);
+    }
+
+    if (port === 5174) {
+      origins.add(`${url.protocol}//${url.hostname}:5173`);
+    }
+
     return origins;
   } catch {
     return new Set([base]);
   }
 }
 
-const ALLOWED_ORIGINS = buildAllowedOrigins(CONFIGURED_ORIGIN);
-console.log("HTTP CORS allowed origins:", [...ALLOWED_ORIGINS].join(", "));
+const ALLOWED_ORIGINS =
+  buildAllowedOrigins(CONFIGURED_ORIGIN);
 
+console.log(
+  "HTTP CORS allowed origins:",
+  [...ALLOWED_ORIGINS].join(", ")
+);
+
+// CORS middleware
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Allow server-to-server requests (no Origin header) and Postman.
       if (!origin) return callback(null, true);
-      if (ALLOWED_ORIGINS.has(origin)) return callback(null, true);
-      callback(new Error(`CORS: origin ${origin} not allowed`));
+
+      if (ALLOWED_ORIGINS.has(origin)) {
+        return callback(null, true);
+      }
+
+      return callback(new Error("CORS origin not allowed"));
     },
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
@@ -46,39 +56,46 @@ app.use(
   })
 );
 
+// JSON body parser
 app.use(express.json());
 
 // Health check API
 app.get("/api/health", (req, res) => {
-res.status(200).json({
-success: true,
-message: "ProxiSpeak backend is running",
-});
-});
-
-// Get all users from MongoDB
-app.get("/api/users", async (req, res) => {
-try {
-const users = await User.find().select("-passwordHash");
-
-return res.status(200).json({
-  success: true,
-  count: users.length,
-  users,
+  return res.status(200).json({
+    success: true,
+    message: "ProxiSpeak backend is running",
+  });
 });
 
-} catch (error) {
-console.error("Error fetching users:", error.message);
+// General API rate limiting
+app.use("/api", generalApiLimiter);
 
-return res.status(500).json({
-  success: false,
-  message: "Failed to fetch users",
-});
-
-}
-});
-
-// Register user-related routes, including nearby users
+// User-related routes
 app.use("/api/users", userRoutes);
+
+// 404 handler
+app.use((req, res) => {
+  return res.status(404).json({
+    success: false,
+    message: "Route not found",
+  });
+});
+
+// Global error handler
+app.use((err, req, res, next) => {
+  console.error("API ERROR:", err.message);
+
+  if (err.message === "CORS origin not allowed") {
+    return res.status(403).json({
+      success: false,
+      message: "Origin not allowed",
+    });
+  }
+
+  return res.status(500).json({
+    success: false,
+    message: "Internal server error",
+  });
+});
 
 module.exports = app;
