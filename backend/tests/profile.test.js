@@ -1,143 +1,267 @@
-'use strict';
 
-require('dotenv').config();
+const jwt = require("jsonwebtoken");
 
-const { test, describe, before, after } = require('node:test');
-const assert = require('node:assert/strict');
-const http = require('node:http');
+jest.mock("../models/User", () => ({
+  findById: jest.fn(),
+  findByIdAndUpdate: jest.fn(),
+}));
 
-const connectDB = require('../db');
-const app = require('../app');
-const mongoose = require('mongoose');
-const User = require('../models/User');
+process.env.JWT_SECRET = "proxispeak-profile-test-secret";
 
-function request(server, { method = 'GET', path, body, token } = {}) {
-  return new Promise((resolve, reject) => {
-    const addr = server.address();
-    const options = { hostname: '127.0.0.1', port: addr.port, path, method, headers: { 'Content-Type': 'application/json' } };
-    if (token) options.headers['Authorization'] = 'Bearer ' + token;
-    const req = http.request(options, (res) => {
-      let raw = '';
-      res.on('data', (c) => (raw += c));
-      res.on('end', () => { let p; try { p = JSON.parse(raw); } catch { p = raw; } resolve({ status: res.statusCode, body: p }); });
-    });
-    req.on('error', reject);
-    if (body !== undefined) req.write(JSON.stringify(body));
-    req.end();
+const request = require("supertest");
+const User = require("../models/User");
+const app = require("../app");
+
+const USER_ID = "507f1f77bcf86cd799439011";
+const EMAIL = "profiletest@proxispeak.test";
+const NAME = "Task4 Tester";
+
+let mockUser;
+let token;
+
+function setupUser() {
+  mockUser = {
+    _id: USER_ID,
+    id: USER_ID,
+    name: NAME,
+    email: EMAIL,
+    position: [0, 0],
+    passwordHash: "private-hash",
+    createdAt: new Date("2026-01-01"),
+    updatedAt: new Date("2026-01-01"),
+  };
+
+  User.findById.mockImplementation(() => {
+    const query = {
+      select: jest.fn().mockImplementation(() =>
+        Promise.resolve(mockUser)
+      ),
+      then(resolve, reject) {
+        return Promise.resolve(mockUser).then(resolve, reject);
+      },
+    };
+
+    return query;
+  });
+
+  User.findByIdAndUpdate.mockImplementation((id, update) => {
+    const changes = update.$set || update;
+
+    Object.assign(mockUser, changes);
+    mockUser.updatedAt = new Date();
+
+    const query = {
+      select: jest.fn().mockImplementation(() =>
+        Promise.resolve(mockUser)
+      ),
+      then(resolve, reject) {
+        return Promise.resolve(mockUser).then(resolve, reject);
+      },
+    };
+
+    return query;
   });
 }
 
-let server, token, testUserId;
-const TS = Date.now();
-const TEST_EMAIL = 'testuser_' + TS + '@proxispeak.test';
-const TEST_PASSWORD = 'TestPass123!';
-const TEST_NAME = 'Task4 Tester';
+beforeEach(() => {
+  jest.clearAllMocks();
+  setupUser();
 
-before(async () => {
-  await connectDB();
-  await new Promise((r) => { server = app.listen(0, '127.0.0.1', r); });
-  const reg = await request(server, { method: 'POST', path: '/api/users/register', body: { name: TEST_NAME, email: TEST_EMAIL, password: TEST_PASSWORD } });
-  if (reg.status !== 201) throw new Error('Registration failed: ' + JSON.stringify(reg.body));
-  testUserId = reg.body.user.id;
-  const login = await request(server, { method: 'POST', path: '/api/users/login', body: { email: TEST_EMAIL, password: TEST_PASSWORD } });
-  if (login.status !== 200) throw new Error('Login failed: ' + JSON.stringify(login.body));
-  token = login.body.token;
+  token = jwt.sign(
+    {
+      id: USER_ID,
+      email: EMAIL,
+      name: NAME,
+    },
+    process.env.JWT_SECRET,
+    { expiresIn: "1h" }
+  );
 });
 
-after(async () => {
-  if (testUserId) await User.findByIdAndDelete(testUserId).catch(() => {});
-  await new Promise((r) => server.close(r));
-  await mongoose.disconnect();
+describe("GET /api/users/me", () => {
+  test("returns own profile with valid token", async () => {
+    const res = await request(app)
+      .get("/api/users/me")
+      .set("Authorization", `Bearer ${token}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.user.email).toBe(EMAIL);
+    expect(res.body.user.name).toBe(NAME);
+    expect(res.body.user.id).toBe(USER_ID);
+    expect(Array.isArray(res.body.user.position)).toBe(true);
+    expect(res.body.user.createdAt).toBeDefined();
+    expect(res.body.user.updatedAt).toBeDefined();
+  });
+
+  test("never exposes passwordHash", async () => {
+    const res = await request(app)
+      .get("/api/users/me")
+      .set("Authorization", `Bearer ${token}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.user.passwordHash).toBeUndefined();
+  });
+
+  test("rejects missing token", async () => {
+    const res = await request(app)
+      .get("/api/users/me");
+
+    expect(res.status).toBe(401);
+    expect(res.body.success).toBe(false);
+  });
+
+  test("rejects malformed token", async () => {
+    const res = await request(app)
+      .get("/api/users/me")
+      .set("Authorization", "Bearer invalid.token");
+
+    expect(res.status).toBe(401);
+    expect(res.body.success).toBe(false);
+  });
+
+  test("rejects missing Bearer prefix", async () => {
+    const res = await request(app)
+      .get("/api/users/me")
+      .set("Authorization", token);
+
+    expect(res.status).toBe(401);
+    expect(res.body.success).toBe(false);
+  });
 });
 
-describe('GET /api/users/me', () => {
-  test('200 - own profile returned for valid token', async () => {
-    const { status, body } = await request(server, { path: '/api/users/me', token });
-    assert.equal(status, 200);
-    assert.equal(body.success, true);
-    assert.ok(body.user);
-    assert.equal(body.user.email, TEST_EMAIL);
-    assert.equal(body.user.name, TEST_NAME);
-    assert.ok(body.user.id);
-    assert.ok(Array.isArray(body.user.position));
-    assert.ok('createdAt' in body.user);
-    assert.ok('updatedAt' in body.user);
+describe("PATCH /api/users/me", () => {
+  test("updates name only", async () => {
+    const res = await request(app)
+      .patch("/api/users/me")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ name: "Updated Name" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.user.name).toBe("Updated Name");
+    expect(res.body.user.email).toBe(EMAIL);
   });
-  test('passwordHash never exposed', async () => {
-    const { body } = await request(server, { path: '/api/users/me', token });
-    assert.equal(body.user.passwordHash, undefined);
+
+  test("updates position only", async () => {
+    const res = await request(app)
+      .patch("/api/users/me")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ position: [100, 200] });
+
+    expect(res.status).toBe(200);
+    expect(res.body.user.position).toEqual([100, 200]);
   });
-  test('401 - no auth header', async () => {
-    const { status, body } = await request(server, { path: '/api/users/me' });
-    assert.equal(status, 401); assert.equal(body.success, false);
-  });
-  test('401 - malformed token', async () => {
-    const { status, body } = await request(server, { path: '/api/users/me', token: 'not.a.token' });
-    assert.equal(status, 401); assert.equal(body.success, false);
-  });
-  test('401 - Bearer prefix missing', async () => {
-    const addr = server.address();
-    const res = await new Promise((resolve, reject) => {
-      const req = http.request({ hostname: '127.0.0.1', port: addr.port, path: '/api/users/me', method: 'GET', headers: { 'Content-Type': 'application/json', Authorization: token } }, (r) => {
-        let raw = ''; r.on('data', (c) => (raw += c)); r.on('end', () => resolve({ status: r.statusCode, body: JSON.parse(raw) }));
+
+  test("updates name and position together", async () => {
+    const res = await request(app)
+      .patch("/api/users/me")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        name: "Both Updated",
+        position: [50, 60],
       });
-      req.on('error', reject); req.end();
-    });
-    assert.equal(res.status, 401); assert.equal(res.body.success, false);
-  });
-});
 
-describe('PATCH /api/users/me', () => {
-  test('200 - update name only', async () => {
-    const { status, body } = await request(server, { method: 'PATCH', path: '/api/users/me', body: { name: 'Updated Name' }, token });
-    assert.equal(status, 200); assert.equal(body.user.name, 'Updated Name'); assert.equal(body.user.email, TEST_EMAIL);
+    expect(res.status).toBe(200);
+    expect(res.body.user.name).toBe("Both Updated");
+    expect(res.body.user.position).toEqual([50, 60]);
   });
-  test('200 - update position only', async () => {
-    const { status, body } = await request(server, { method: 'PATCH', path: '/api/users/me', body: { position: [100, 200] }, token });
-    assert.equal(status, 200); assert.deepEqual(body.user.position, [100, 200]);
+
+  test("never exposes passwordHash in PATCH response", async () => {
+    const res = await request(app)
+      .patch("/api/users/me")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ name: "HashCheck" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.user.passwordHash).toBeUndefined();
   });
-  test('200 - update name and position', async () => {
-    const { status, body } = await request(server, { method: 'PATCH', path: '/api/users/me', body: { name: 'Both Updated', position: [50, 60] }, token });
-    assert.equal(status, 200); assert.equal(body.user.name, 'Both Updated'); assert.deepEqual(body.user.position, [50, 60]);
+
+  test("does not allow email changes", async () => {
+    const res = await request(app)
+      .patch("/api/users/me")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        name: "EmailTest",
+        email: "attacker@evil.com",
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.user.email).toBe(EMAIL);
   });
-  test('passwordHash not returned in PATCH response', async () => {
-    const { body } = await request(server, { method: 'PATCH', path: '/api/users/me', body: { name: 'HashCheck' }, token });
-    assert.equal(body.user.passwordHash, undefined);
+
+  test("rejects empty body", async () => {
+    const res = await request(app)
+      .patch("/api/users/me")
+      .set("Authorization", `Bearer ${token}`)
+      .send({});
+
+    expect(res.status).toBe(400);
+    expect(res.body.success).toBe(false);
   });
-  test('email not changed even if sent', async () => {
-    const { status, body } = await request(server, { method: 'PATCH', path: '/api/users/me', body: { name: 'EmailTest', email: 'attacker@evil.com' }, token });
-    assert.equal(status, 200); assert.equal(body.user.email, TEST_EMAIL);
+
+  test("rejects whitespace-only name", async () => {
+    const res = await request(app)
+      .patch("/api/users/me")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ name: "   " });
+
+    expect(res.status).toBe(400);
+    expect(res.body.success).toBe(false);
   });
-  test('400 - empty body', async () => {
-    const { status, body } = await request(server, { method: 'PATCH', path: '/api/users/me', body: {}, token });
-    assert.equal(status, 400); assert.equal(body.success, false);
+
+  test("rejects position that is not an array", async () => {
+    const res = await request(app)
+      .patch("/api/users/me")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ position: "bad" });
+
+    expect(res.status).toBe(400);
+    expect(res.body.success).toBe(false);
   });
-  test('400 - name is whitespace only', async () => {
-    const { status, body } = await request(server, { method: 'PATCH', path: '/api/users/me', body: { name: '   ' }, token });
-    assert.equal(status, 400); assert.equal(body.success, false);
+
+  test("rejects position with incorrect length", async () => {
+    const res = await request(app)
+      .patch("/api/users/me")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ position: [100] });
+
+    expect(res.status).toBe(400);
+    expect(res.body.success).toBe(false);
   });
-  test('400 - position not an array', async () => {
-    const { status, body } = await request(server, { method: 'PATCH', path: '/api/users/me', body: { position: 'bad' }, token });
-    assert.equal(status, 400); assert.equal(body.success, false);
+
+  test("rejects position outside office boundaries", async () => {
+    const res = await request(app)
+      .patch("/api/users/me")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ position: [1500, 300] });
+
+    expect(res.status).toBe(400);
+    expect(res.body.success).toBe(false);
   });
-  test('400 - position wrong length', async () => {
-    const { status, body } = await request(server, { method: 'PATCH', path: '/api/users/me', body: { position: [100] }, token });
-    assert.equal(status, 400); assert.equal(body.success, false);
+
+  test("rejects unauthenticated PATCH", async () => {
+    const res = await request(app)
+      .patch("/api/users/me")
+      .send({ name: "Hacker" });
+
+    expect(res.status).toBe(401);
+    expect(res.body.success).toBe(false);
   });
-  test('400/500 - position out of bounds', async () => {
-    const { status, body } = await request(server, { method: 'PATCH', path: '/api/users/me', body: { position: [1500, 300] }, token });
-    assert.ok([400, 500].includes(status), 'Expected 400 or 500, got ' + status);
-    assert.equal(body.success, false);
-  });
-  test('401 - unauthenticated PATCH rejected', async () => {
-    const { status, body } = await request(server, { method: 'PATCH', path: '/api/users/me', body: { name: 'Hacker' } });
-    assert.equal(status, 401); assert.equal(body.success, false);
-  });
-  test('protected fields silently ignored', async () => {
-    const { status, body } = await request(server, { method: 'PATCH', path: '/api/users/me', body: { name: 'LegitUpdate', passwordHash: 'fake-hash', _id: '000000000000000000000001' }, token });
-    assert.equal(status, 200);
-    assert.equal(body.user.name, 'LegitUpdate');
-    assert.equal(body.user.passwordHash, undefined);
-    assert.equal(String(body.user.id), testUserId);
+
+  test("ignores protected fields", async () => {
+    const res = await request(app)
+      .patch("/api/users/me")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        name: "LegitUpdate",
+        passwordHash: "fake-hash",
+        _id: "000000000000000000000001",
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.user.name).toBe("LegitUpdate");
+    expect(res.body.user.passwordHash).toBeUndefined();
+    expect(String(res.body.user.id)).toBe(USER_ID);
+    expect(res.body.user.email).toBe(EMAIL);
   });
 });

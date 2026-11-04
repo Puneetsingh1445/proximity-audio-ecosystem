@@ -3,9 +3,15 @@ const express = require("express");
 const cors = require("cors");
 const userRoutes = require("./routes/userRoutes");
 
-const { generalApiLimiter } = require("./middleware/rateLimiters");
+const {
+  generalApiLimiter,
+} = require("./middleware/rateLimiters");
 
 const app = express();
+
+// ==========================================
+// FRONTEND CORS CONFIGURATION
+// ==========================================
 
 const CONFIGURED_ORIGIN =
   process.env.FRONTEND_URL || "http://localhost:5174";
@@ -16,6 +22,7 @@ function buildAllowedOrigins(base) {
     const port = parseInt(url.port, 10);
     const origins = new Set([base]);
 
+    // Support Vite ports 5173 and 5174
     if (port === 5173) {
       origins.add(`${url.protocol}//${url.hostname}:5174`);
     }
@@ -25,7 +32,8 @@ function buildAllowedOrigins(base) {
     }
 
     return origins;
-  } catch {
+  } catch (error) {
+    console.error("Invalid FRONTEND_URL:", error.message);
     return new Set([base]);
   }
 }
@@ -38,11 +46,17 @@ console.log(
   [...ALLOWED_ORIGINS].join(", ")
 );
 
-// CORS middleware
+// ==========================================
+// CORS MIDDLEWARE
+// ==========================================
+
 app.use(
   cors({
     origin: (origin, callback) => {
-      if (!origin) return callback(null, true);
+      // Allow requests without an Origin header
+      if (!origin) {
+        return callback(null, true);
+      }
 
       if (ALLOWED_ORIGINS.has(origin)) {
         return callback(null, true);
@@ -50,16 +64,42 @@ app.use(
 
       return callback(new Error("CORS origin not allowed"));
     },
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
+
+    methods: [
+      "GET",
+      "POST",
+      "PUT",
+      "PATCH",
+      "DELETE",
+      "OPTIONS",
+    ],
+
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+    ],
+
     credentials: true,
   })
 );
 
-// JSON body parser
+// ==========================================
+// BODY PARSER
+// ==========================================
+
 app.use(express.json());
 
-// Health check API
+// ==========================================
+// GENERAL API RATE LIMITING
+// 100 requests per 15 minutes
+// ==========================================
+
+app.use("/api", generalApiLimiter);
+
+// ==========================================
+// HEALTH CHECK API
+// ==========================================
+
 app.get("/api/health", (req, res) => {
   return res.status(200).json({
     success: true,
@@ -67,13 +107,19 @@ app.get("/api/health", (req, res) => {
   });
 });
 
-// General API rate limiting
-app.use("/api", generalApiLimiter);
+// ==========================================
+// USER ROUTES
+// ==========================================
 
-// User-related routes
+// Registration and login have their own
+// rate limiters inside userRoutes.js.
+
 app.use("/api/users", userRoutes);
 
-// 404 handler
+// ==========================================
+// 404 HANDLER
+// ==========================================
+
 app.use((req, res) => {
   return res.status(404).json({
     success: false,
@@ -81,9 +127,16 @@ app.use((req, res) => {
   });
 });
 
-// Global error handler
+// ==========================================
+// GLOBAL ERROR HANDLER
+// ==========================================
+
 app.use((err, req, res, next) => {
   console.error("API ERROR:", err.message);
+
+  if (res.headersSent) {
+    return next(err);
+  }
 
   if (err.message === "CORS origin not allowed") {
     return res.status(403).json({
@@ -97,5 +150,9 @@ app.use((err, req, res, next) => {
     message: "Internal server error",
   });
 });
+
+// ==========================================
+// EXPORT APP
+// ==========================================
 
 module.exports = app;

@@ -13,13 +13,16 @@ const {
 
 const router = express.Router();
 
+// ==========================================
+// USER REGISTRATION
 // POST /api/users/register
-// Maximum 10 registration attempts per 15 minutes
+// ==========================================
+
 router.post("/register", registerLimiter, async (req, res) => {
   try {
     const { name, email, password } = req.body || {};
 
-    // Validate request body
+    // Validate input
     if (
       typeof name !== "string" ||
       typeof email !== "string" ||
@@ -34,7 +37,7 @@ router.post("/register", registerLimiter, async (req, res) => {
       });
     }
 
-    // Validate password length
+    // Password validation
     if (password.length < 8) {
       return res.status(400).json({
         success: false,
@@ -42,11 +45,10 @@ router.post("/register", registerLimiter, async (req, res) => {
       });
     }
 
-    // Normalize input
     const normalizedName = name.trim();
     const normalizedEmail = email.trim().toLowerCase();
 
-    // Validate email format
+    // Email validation
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
     if (!emailRegex.test(normalizedEmail)) {
@@ -64,7 +66,7 @@ router.post("/register", registerLimiter, async (req, res) => {
       });
     }
 
-    // Check for an existing email
+    // Check existing email
     const existingUser = await User.findOne({
       email: normalizedEmail,
     });
@@ -76,17 +78,16 @@ router.post("/register", registerLimiter, async (req, res) => {
       });
     }
 
-    // Hash password before saving
+    // Hash password
     const passwordHash = await bcrypt.hash(password, 12);
 
-    // Save the new user
+    // Create user
     const user = await User.create({
       name: normalizedName,
       email: normalizedEmail,
       passwordHash,
     });
 
-    // Return safe user data
     return res.status(201).json({
       success: true,
       message: "User registered successfully",
@@ -98,10 +99,10 @@ router.post("/register", registerLimiter, async (req, res) => {
         createdAt: user.createdAt,
       },
     });
+
   } catch (error) {
     console.error("REGISTER ERROR:", error.stack || error);
 
-    // Handle duplicate email errors
     if (error.code === 11000) {
       return res.status(409).json({
         success: false,
@@ -109,7 +110,6 @@ router.post("/register", registerLimiter, async (req, res) => {
       });
     }
 
-    // Handle Mongoose validation errors
     if (error.name === "ValidationError") {
       return res.status(400).json({
         success: false,
@@ -120,7 +120,6 @@ router.post("/register", registerLimiter, async (req, res) => {
       });
     }
 
-    // Development diagnostics
     if (process.env.NODE_ENV !== "production") {
       return res.status(500).json({
         success: false,
@@ -138,11 +137,13 @@ router.post("/register", registerLimiter, async (req, res) => {
   }
 });
 
+// ==========================================
+// USER LOGIN
 // POST /api/users/login
-// Maximum 10 login attempts per 15 minutes
+// ==========================================
+
 router.post("/login", loginLimiter, async (req, res) => {
   try {
-    // Validate request body
     const { email, password } = req.body || {};
 
     if (
@@ -157,10 +158,8 @@ router.post("/login", loginLimiter, async (req, res) => {
       });
     }
 
-    // Normalize email
     const normalizedEmail = email.trim().toLowerCase();
 
-    // Check MongoDB connection
     if (mongoose.connection.readyState !== 1) {
       return res.status(503).json({
         success: false,
@@ -168,12 +167,11 @@ router.post("/login", loginLimiter, async (req, res) => {
       });
     }
 
-    // Fetch passwordHash explicitly
+    // Explicitly select passwordHash for password comparison
     const user = await User.findOne({
       email: normalizedEmail,
     }).select("+passwordHash");
 
-    // Generic error prevents email enumeration
     if (!user) {
       return res.status(401).json({
         success: false,
@@ -181,7 +179,7 @@ router.post("/login", loginLimiter, async (req, res) => {
       });
     }
 
-    // Compare password
+    // Verify password
     const isPasswordValid = await bcrypt.compare(
       password,
       user.passwordHash
@@ -194,11 +192,10 @@ router.post("/login", loginLimiter, async (req, res) => {
       });
     }
 
-    // Verify JWT_SECRET
     const jwtSecret = process.env.JWT_SECRET;
 
     if (!jwtSecret) {
-      console.error("LOGIN ERROR: JWT_SECRET is not set");
+      console.error("LOGIN ERROR: JWT_SECRET is not configured");
 
       return res.status(500).json({
         success: false,
@@ -219,7 +216,6 @@ router.post("/login", loginLimiter, async (req, res) => {
       }
     );
 
-    // Return token and safe user data
     return res.status(200).json({
       success: true,
       message: "Login successful",
@@ -232,6 +228,7 @@ router.post("/login", loginLimiter, async (req, res) => {
         createdAt: user.createdAt,
       },
     });
+
   } catch (error) {
     console.error("LOGIN ERROR:", error.stack || error);
 
@@ -251,9 +248,11 @@ router.post("/login", loginLimiter, async (req, res) => {
   }
 });
 
-// ─── Profile routes (require a valid JWT) ─────────────────────
-
+// ==========================================
+// GET MY PROFILE
 // GET /api/users/me
+// ==========================================
+
 router.get("/me", authenticate, async (req, res) => {
   try {
     const user = await User.findById(req.user.id);
@@ -276,17 +275,9 @@ router.get("/me", authenticate, async (req, res) => {
         updatedAt: user.updatedAt,
       },
     });
+
   } catch (error) {
     console.error("GET /me ERROR:", error.stack || error);
-
-    if (process.env.NODE_ENV !== "production") {
-      return res.status(500).json({
-        success: false,
-        message: "Failed to fetch profile",
-        debugError: error.message,
-        errorName: error.name,
-      });
-    }
 
     return res.status(500).json({
       success: false,
@@ -295,15 +286,22 @@ router.get("/me", authenticate, async (req, res) => {
   }
 });
 
+// ==========================================
+// UPDATE MY PROFILE
 // PATCH /api/users/me
+// ==========================================
+
 router.patch("/me", authenticate, async (req, res) => {
   try {
     const body = req.body || {};
     const allowedUpdates = {};
 
-    // Only allow name and position updates
+    // Validate name
     if (body.name !== undefined) {
-      if (typeof body.name !== "string" || !body.name.trim()) {
+      if (
+        typeof body.name !== "string" ||
+        !body.name.trim()
+      ) {
         return res.status(400).json({
           success: false,
           message: "Name must be a non-empty string.",
@@ -313,6 +311,7 @@ router.patch("/me", authenticate, async (req, res) => {
       allowedUpdates.name = body.name.trim();
     }
 
+    // Validate position
     if (body.position !== undefined) {
       if (
         !Array.isArray(body.position) ||
@@ -326,20 +325,33 @@ router.patch("/me", authenticate, async (req, res) => {
         });
       }
 
-      allowedUpdates.position = body.position;
+      const [x, y] = body.position;
+
+      // Validate office canvas boundaries
+      if (x < 0 || x > 1000 || y < 0 || y > 600) {
+        return res.status(400).json({
+          success: false,
+          message: "Position is out of bounds. x must be 0–1000 and y must be 0–600.",
+        });
+      }
+
+      allowedUpdates.position = [x, y];
     }
 
     if (Object.keys(allowedUpdates).length === 0) {
       return res.status(400).json({
         success: false,
-        message: "Nothing to update. Provide 'name' and/or 'position'.",
+        message: "Nothing to update. Provide name and/or position.",
       });
     }
 
     const updatedUser = await User.findByIdAndUpdate(
       req.user.id,
       { $set: allowedUpdates },
-      { returnDocument: "after", runValidators: true }
+      {
+        returnDocument: "after",
+        runValidators: true,
+      }
     );
 
     if (!updatedUser) {
@@ -361,6 +373,7 @@ router.patch("/me", authenticate, async (req, res) => {
         updatedAt: updatedUser.updatedAt,
       },
     });
+
   } catch (error) {
     console.error("PATCH /me ERROR:", error.stack || error);
 
@@ -369,28 +382,8 @@ router.patch("/me", authenticate, async (req, res) => {
         success: false,
         message: "Validation failed.",
         details: Object.values(error.errors).map(
-          (e) => e.message
+          (item) => item.message
         ),
-      });
-    }
-
-    if (
-      error.name === "MongoServerError" &&
-      process.env.NODE_ENV !== "production"
-    ) {
-      return res.status(500).json({
-        success: false,
-        message: "Failed to update profile",
-        debugHint: `MongoServerError code ${error.code}: ${error.codeName || "see server log"}`,
-      });
-    }
-
-    if (process.env.NODE_ENV !== "production") {
-      return res.status(500).json({
-        success: false,
-        message: "Failed to update profile",
-        debugError: error.message,
-        errorName: error.name,
       });
     }
 
@@ -401,14 +394,16 @@ router.patch("/me", authenticate, async (req, res) => {
   }
 });
 
-// ─── Geolocation routes (require a valid JWT) ─────────────────
-
+// ==========================================
+// UPDATE MY POSITION
 // PUT /api/users/me/position
+// ==========================================
+
 router.put("/me/position", authenticate, async (req, res) => {
   try {
     const { position } = req.body || {};
 
-    // Validate position shape
+    // Validate coordinates
     if (
       !Array.isArray(position) ||
       position.length !== 2 ||
@@ -423,20 +418,21 @@ router.put("/me/position", authenticate, async (req, res) => {
 
     const [x, y] = position;
 
-    // Validate canvas boundaries
+    // Canvas boundary validation
     if (x < 0 || x > 1000 || y < 0 || y > 600) {
       return res.status(400).json({
         success: false,
-        message:
-          "Position is out of bounds. x must be 0–1000 and y must be 0–600.",
+        message: "Position is out of bounds. x must be 0–1000 and y must be 0–600.",
       });
     }
 
-    // Save position
     const updatedUser = await User.findByIdAndUpdate(
       req.user.id,
       { $set: { position: [x, y] } },
-      { returnDocument: "after", runValidators: true }
+      {
+        returnDocument: "after",
+        runValidators: true,
+      }
     );
 
     if (!updatedUser) {
@@ -457,6 +453,7 @@ router.put("/me/position", authenticate, async (req, res) => {
         updatedAt: updatedUser.updatedAt,
       },
     });
+
   } catch (error) {
     console.error("PUT /me/position ERROR:", error.stack || error);
 
@@ -465,28 +462,8 @@ router.put("/me/position", authenticate, async (req, res) => {
         success: false,
         message: "Validation failed.",
         details: Object.values(error.errors).map(
-          (e) => e.message
+          (item) => item.message
         ),
-      });
-    }
-
-    if (
-      error.name === "MongoServerError" &&
-      process.env.NODE_ENV !== "production"
-    ) {
-      return res.status(500).json({
-        success: false,
-        message: "Failed to update position",
-        debugHint: `MongoServerError code ${error.code}: ${error.codeName || "see server log"}`,
-      });
-    }
-
-    if (process.env.NODE_ENV !== "production") {
-      return res.status(500).json({
-        success: false,
-        message: "Failed to update position",
-        debugError: error.message,
-        errorName: error.name,
       });
     }
 
@@ -497,7 +474,11 @@ router.put("/me/position", authenticate, async (req, res) => {
   }
 });
 
-// GET /api/users/nearby?radius=<pixels>
+// ==========================================
+// GET NEARBY USERS
+// GET /api/users/nearby?radius=100
+// ==========================================
+
 router.get("/nearby", authenticate, async (req, res) => {
   try {
     const rawRadius = req.query.radius;
@@ -527,7 +508,7 @@ router.get("/nearby", authenticate, async (req, res) => {
       });
     }
 
-    // Fetch current user's position
+    // Get authenticated user's position
     const me = await User.findById(req.user.id).select("position");
 
     if (!me) {
@@ -539,7 +520,7 @@ router.get("/nearby", authenticate, async (req, res) => {
 
     const [myX, myY] = me.position;
 
-    // Find nearby users using the MongoDB 2d index
+    // Find nearby users using MongoDB 2d geospatial index
     const nearbyUsers = await User.find({
       _id: { $ne: req.user.id },
       position: {
@@ -553,14 +534,15 @@ router.get("/nearby", authenticate, async (req, res) => {
       myPosition: [myX, myY],
       radius,
       count: nearbyUsers.length,
-      users: nearbyUsers.map((u) => ({
-        id: u._id,
-        name: u.name,
-        email: u.email,
-        position: u.position,
-        updatedAt: u.updatedAt,
+      users: nearbyUsers.map((user) => ({
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        position: user.position,
+        updatedAt: user.updatedAt,
       })),
     });
+
   } catch (error) {
     console.error("GET /nearby ERROR:", error.stack || error);
 
@@ -579,5 +561,9 @@ router.get("/nearby", authenticate, async (req, res) => {
     });
   }
 });
+
+// ==========================================
+// EXPORT ROUTER
+// ==========================================
 
 module.exports = router;
