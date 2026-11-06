@@ -22,7 +22,6 @@ router.post("/register", registerLimiter, async (req, res) => {
   try {
     const { name, email, password } = req.body || {};
 
-    // Validate input
     if (
       typeof name !== "string" ||
       typeof email !== "string" ||
@@ -37,7 +36,6 @@ router.post("/register", registerLimiter, async (req, res) => {
       });
     }
 
-    // Password validation
     if (password.length < 8) {
       return res.status(400).json({
         success: false,
@@ -48,7 +46,6 @@ router.post("/register", registerLimiter, async (req, res) => {
     const normalizedName = name.trim();
     const normalizedEmail = email.trim().toLowerCase();
 
-    // Email validation
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
     if (!emailRegex.test(normalizedEmail)) {
@@ -58,7 +55,6 @@ router.post("/register", registerLimiter, async (req, res) => {
       });
     }
 
-    // Check MongoDB connection
     if (mongoose.connection.readyState !== 1) {
       return res.status(503).json({
         success: false,
@@ -66,7 +62,6 @@ router.post("/register", registerLimiter, async (req, res) => {
       });
     }
 
-    // Check existing email
     const existingUser = await User.findOne({
       email: normalizedEmail,
     });
@@ -78,10 +73,8 @@ router.post("/register", registerLimiter, async (req, res) => {
       });
     }
 
-    // Hash password
     const passwordHash = await bcrypt.hash(password, 12);
 
-    // Create user
     const user = await User.create({
       name: normalizedName,
       email: normalizedEmail,
@@ -167,7 +160,6 @@ router.post("/login", loginLimiter, async (req, res) => {
       });
     }
 
-    // Explicitly select passwordHash for password comparison
     const user = await User.findOne({
       email: normalizedEmail,
     }).select("+passwordHash");
@@ -179,7 +171,6 @@ router.post("/login", loginLimiter, async (req, res) => {
       });
     }
 
-    // Verify password
     const isPasswordValid = await bcrypt.compare(
       password,
       user.passwordHash
@@ -203,7 +194,6 @@ router.post("/login", loginLimiter, async (req, res) => {
       });
     }
 
-    // Generate JWT
     const token = jwt.sign(
       {
         id: user._id,
@@ -327,11 +317,11 @@ router.patch("/me", authenticate, async (req, res) => {
 
       const [x, y] = body.position;
 
-      // Validate office canvas boundaries
-      if (x < 0 || x > 1000 || y < 0 || y > 600) {
+      // Validate office canvas boundaries (1200 x 650)
+      if (x < 0 || x > 1200 || y < 0 || y > 650) {
         return res.status(400).json({
           success: false,
-          message: "Position is out of bounds. x must be 0–1000 and y must be 0–600.",
+          message: "Position is out of bounds. x must be 0–1200 and y must be 0–650.",
         });
       }
 
@@ -418,11 +408,11 @@ router.put("/me/position", authenticate, async (req, res) => {
 
     const [x, y] = position;
 
-    // Canvas boundary validation
-    if (x < 0 || x > 1000 || y < 0 || y > 600) {
+    // Canvas boundary validation (1200 x 650)
+    if (x < 0 || x > 1200 || y < 0 || y > 650) {
       return res.status(400).json({
         success: false,
-        message: "Position is out of bounds. x must be 0–1000 and y must be 0–600.",
+        message: "Position is out of bounds. x must be 0–1200 and y must be 0–650.",
       });
     }
 
@@ -508,7 +498,6 @@ router.get("/nearby", authenticate, async (req, res) => {
       });
     }
 
-    // Get authenticated user's position
     const me = await User.findById(req.user.id).select("position");
 
     if (!me) {
@@ -520,7 +509,6 @@ router.get("/nearby", authenticate, async (req, res) => {
 
     const [myX, myY] = me.position;
 
-    // Find nearby users using MongoDB 2d geospatial index
     const nearbyUsers = await User.find({
       _id: { $ne: req.user.id },
       position: {

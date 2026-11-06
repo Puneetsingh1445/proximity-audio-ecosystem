@@ -6,6 +6,7 @@ const User = require("../models/User");
 const OFFICE_WIDTH = 1200;
 const OFFICE_HEIGHT = 650;
 const MOVE_INTERVAL = 80;
+const POSITION_SAVE_INTERVAL = 1000;
 
 const players = new Map();
 
@@ -35,6 +36,30 @@ function getPlayers() {
 
 function broadcastPlayers(io) {
   io.emit("players:update", getPlayers());
+}
+
+// Save the latest position to MongoDB.
+async function persistPosition(player) {
+  if (!player || !isValidPosition(player.x, player.y)) {
+    return;
+  }
+
+  try {
+    await User.updateOne(
+      { _id: player.userId },
+      {
+        $set: {
+          position: [player.x, player.y],
+        },
+      },
+      { runValidators: true }
+    );
+  } catch (error) {
+    console.error(
+      "POSITION PERSISTENCE ERROR:",
+      error.message
+    );
+  }
 }
 
 /**
@@ -83,7 +108,10 @@ function setupOfficeSocket(server) {
       );
     }
   } catch (error) {
-    console.error("Invalid Socket.IO FRONTEND_URL:", error.message);
+    console.error(
+      "Invalid Socket.IO FRONTEND_URL:",
+      error.message
+    );
   }
 
   const io = new Server(server, {
@@ -140,14 +168,12 @@ function setupOfficeSocket(server) {
     // SOCKET EVENT RATE LIMITING
     // ==========================================
 
-    // Each connected socket has its own event counters.
     const eventLimits = new Map();
 
     function allowSocketEvent(eventName, maxEvents, windowMs) {
       const now = Date.now();
       const current = eventLimits.get(eventName);
 
-      // Start a new time window.
       if (!current || now - current.startTime >= windowMs) {
         eventLimits.set(eventName, {
           startTime: now,
@@ -157,7 +183,6 @@ function setupOfficeSocket(server) {
         return true;
       }
 
-      // Block events after reaching the limit.
       if (current.count >= maxEvents) {
         return false;
       }
@@ -167,7 +192,6 @@ function setupOfficeSocket(server) {
       return true;
     }
 
-    // Check whether this socket is the active voice-room socket.
     function isInVoiceRoom(checkUserId) {
       return voiceRoom.get(checkUserId) === socket.id;
     }
@@ -178,25 +202,37 @@ function setupOfficeSocket(server) {
 
     socket.on("player:join", async (data = {}) => {
       try {
+        if (!data || typeof data !== "object" || Array.isArray(data)) {
+          return socket.emit("player:error", "Invalid join data");
+        }
+
         const { x, y } = data;
 
         if (!isValidPosition(x, y)) {
-          return socket.emit(
-            "player:error",
-            "Invalid position"
-          );
+          return socket.emit("player:error", "Invalid position");
         }
 
-        const user = await User.findById(userId).select("name");
+        // Load the user's saved position from MongoDB.
+        const user = await User.findById(userId).select(
+          "name position"
+        );
 
         if (!user) {
-          return socket.emit(
-            "player:error",
-            "User not found"
-          );
+          return socket.emit("player:error", "User not found");
         }
 
-        // If the same user reconnects, clean up the old socket.
+        // Prevent an older join request from replacing a newer socket.
+        const currentPlayer = players.get(userId);
+
+        if (
+          currentPlayer &&
+          currentPlayer.socketId !== socket.id &&
+          currentPlayer.joinStartedAt > socket.data.joinStartedAt
+        ) {
+          return;
+        }
+
+        // Clean up an older active socket.
         const existingPlayer = players.get(userId);
 
         if (
@@ -216,14 +252,49 @@ function setupOfficeSocket(server) {
           }
         }
 
-        players.set(userId, {
+        const savedPosition = user.position;
+
+        const hasValidSavedPosition =
+          Array.isArray(savedPosition) &&
+          savedPosition.length === 2 &&
+          isValidPosition(savedPosition[0], savedPosition[1]);
+
+        const initialX = hasValidSavedPosition
+          ? savedPosition[0]
+          : x;
+
+        const initialY = hasValidSavedPosition
+          ? savedPosition[1]
+          : y;
+
+        const player = {
           userId,
           socketId: socket.id,
           name: user.name,
-          x,
-          y,
+          x: initialX,
+          y: initialY,
           color: "#8B7CF6",
           lastMoveAt: 0,
+          lastPersistAt: 0,
+          persistTimer: null,
+          joinStartedAt: socket.data.joinStartedAt || Date.now(),
+        };
+
+        players.set(userId, player);
+
+        // Save the fallback position if no valid saved position existed.
+        if (!hasValidSavedPosition) {
+          await persistPosition(player);
+        }
+
+        // Do not broadcast if this socket was replaced during the await.
+        if (players.get(userId)?.socketId !== socket.id) {
+          return;
+        }
+
+        socket.emit("player:position-restored", {
+          x: player.x,
+          y: player.y,
         });
 
         broadcastPlayers(io);
@@ -236,6 +307,13 @@ function setupOfficeSocket(server) {
         );
       }
     });
+
+    // Record when this socket began its join request.
+    socket.data.joinStartedAt = Date.now();
+
+    // ==========================================
+    // PLAYER MOVEMENT
+    // ==========================================
 
     socket.on("player:move", (data = {}) => {
       const player = players.get(userId);
@@ -250,6 +328,10 @@ function setupOfficeSocket(server) {
         return;
       }
 
+      if (!data || typeof data !== "object" || Array.isArray(data)) {
+        return;
+      }
+
       const { x, y } = data;
 
       if (!isValidPosition(x, y)) {
@@ -260,6 +342,27 @@ function setupOfficeSocket(server) {
       player.y = y;
       player.lastMoveAt = now;
 
+      // Schedule a MongoDB save at most once per interval.
+      // Repeated movement events update the latest coordinates.
+      if (!player.persistTimer) {
+        player.persistTimer = setTimeout(async () => {
+          player.persistTimer = null;
+
+          // Only the currently active socket can persist movement.
+          const activePlayer = players.get(userId);
+
+          if (
+            !activePlayer ||
+            activePlayer.socketId !== socket.id
+          ) {
+            return;
+          }
+
+          await persistPosition(activePlayer);
+          activePlayer.lastPersistAt = Date.now();
+        }, POSITION_SAVE_INTERVAL);
+      }
+
       broadcastPlayers(io);
     });
 
@@ -268,14 +371,12 @@ function setupOfficeSocket(server) {
     // ==========================================
 
     socket.on("voice:join", () => {
-      // User must be an active office player.
       const player = players.get(userId);
 
       if (!player || player.socketId !== socket.id) {
         return;
       }
 
-      // Already joined.
       if (voiceRoom.has(userId)) {
         return;
       }
@@ -290,7 +391,6 @@ function setupOfficeSocket(server) {
         peers: existingPeers,
       });
 
-      // Notify existing voice participants.
       for (const [peerId, peerSocketId] of voiceRoom) {
         if (peerId === userId) continue;
 
@@ -312,7 +412,6 @@ function setupOfficeSocket(server) {
 
     // ==========================================
     // WEBRTC OFFER
-    // Limit: 10 events per 10 seconds
     // ==========================================
 
     socket.on("voice:offer", (data = {}) => {
@@ -328,10 +427,8 @@ function setupOfficeSocket(server) {
 
       const { targetUserId, sdp } = data;
 
-      // Sender must be in voice room.
       if (!isInVoiceRoom(fromUserId)) return;
 
-      // Validate SDP.
       if (
         !sdp ||
         typeof sdp !== "object" ||
@@ -340,7 +437,6 @@ function setupOfficeSocket(server) {
         return;
       }
 
-      // Receiver must be in voice room.
       if (
         typeof targetUserId !== "string" ||
         !voiceRoom.has(targetUserId)
@@ -364,7 +460,6 @@ function setupOfficeSocket(server) {
 
     // ==========================================
     // WEBRTC ANSWER
-    // Limit: 10 events per 10 seconds
     // ==========================================
 
     socket.on("voice:answer", (data = {}) => {
@@ -413,7 +508,6 @@ function setupOfficeSocket(server) {
 
     // ==========================================
     // WEBRTC ICE CANDIDATE
-    // Limit: 60 events per 10 seconds
     // ==========================================
 
     socket.on("voice:ice-candidate", (data = {}) => {
@@ -473,7 +567,6 @@ function setupOfficeSocket(server) {
 
       voiceRoom.delete(userId);
 
-      // Notify remaining participants.
       for (const [peerId, peerSocketId] of voiceRoom) {
         const peerSocket = io.sockets.sockets.get(
           peerSocketId
@@ -499,27 +592,43 @@ function setupOfficeSocket(server) {
     // PLAYER CLEANUP
     // ==========================================
 
-    function removePlayer() {
+    async function removePlayer() {
       const player = players.get(userId);
 
-      if (player && player.socketId === socket.id) {
+      // An old socket must never remove a newer socket's player.
+      if (!player || player.socketId !== socket.id) {
+        return;
+      }
+
+      if (player.persistTimer) {
+        clearTimeout(player.persistTimer);
+        player.persistTimer = null;
+      }
+
+      // Save the final position before removing the player.
+      await persistPosition(player);
+
+      // Check again in case a newer socket has replaced this one.
+      const currentPlayer = players.get(userId);
+
+      if (currentPlayer?.socketId === socket.id) {
         players.delete(userId);
         broadcastPlayers(io);
       }
     }
 
-    socket.on("player:leave", () => {
+    socket.on("player:leave", async () => {
       removeFromVoice();
-      removePlayer();
+      await removePlayer();
     });
 
     // ==========================================
     // DISCONNECT CLEANUP
     // ==========================================
 
-    socket.on("disconnect", () => {
+    socket.on("disconnect", async () => {
       removeFromVoice();
-      removePlayer();
+      await removePlayer();
 
       console.log("Socket disconnected:", userId);
     });
