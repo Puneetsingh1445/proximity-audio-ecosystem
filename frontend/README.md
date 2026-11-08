@@ -20,4 +20,4 @@ If you are developing a production application, we recommend using TypeScript wi
 - Updated backend project documentation.
 - Reviewed API structure.
 - Improved project setup instructions.
-- Working on backend integration and upgradation.
+- Working on backend integration .
