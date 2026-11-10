@@ -187,6 +187,8 @@ export default function App() {
   const [muted, setMuted] = useState(true);
   const [notifications, setNotifications] = useState(true);
   const [profileName, setProfileName] = useState("Sam");
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileError, setProfileError] = useState("");
 
   const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5055";
 
@@ -344,6 +346,54 @@ export default function App() {
       );
     } finally {
       setRegBusy(false);
+    }
+  }
+
+  async function handleSaveProfile() {
+    const name = profileName.trim();
+
+    if (!name) {
+      setProfileError("Name cannot be empty.");
+      return;
+    }
+
+    if (!auth?.token) {
+      setProfileError("Please sign in again.");
+      return;
+    }
+
+    setProfileSaving(true);
+    setProfileError("");
+
+    try {
+      const response = await fetch(`${API_URL}/api/users/me`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${auth.token}`,
+        },
+        body: JSON.stringify({ name }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success || !data.user) {
+        throw new Error(data.message || "Profile update failed.");
+      }
+
+      const updatedAuth = {
+        ...auth,
+        user: { ...auth.user, ...data.user },
+      };
+
+      localStorage.setItem("proxispeak:auth", JSON.stringify(updatedAuth));
+      setAuth(updatedAuth);
+      setProfileName(data.user.name);
+      showNotice("Profile updated successfully!");
+    } catch (error) {
+      setProfileError(error.message || "Could not update your profile.");
+    } finally {
+      setProfileSaving(false);
     }
   }
 
@@ -908,7 +958,32 @@ export default function App() {
             <>
               <SectionTitle eyebrow="YOUR ACCOUNT" title="Settings" description="Manage your profile, permissions, and app preferences." />
               <div className="settings-grid">
-                <section className="panel settings-card"><div className="settings-heading"><span className="settings-icon"><Users size={20} /></span><div><h3>Your profile</h3><p className="muted">Choose how you appear in ProxiSpeak.</p></div></div><label className="field-label" htmlFor="profile-name">Display name</label><input id="profile-name" className="field-input" value={profileName} onChange={(e) => setProfileName(e.target.value)} maxLength={30} /><p className="footnote">This name is stored only in the current page session.</p></section>
+                <section className="panel settings-card">
+                  <div className="settings-heading">
+                    <span className="settings-icon"><Users size={20} /></span>
+                    <div><h3>Your profile</h3><p className="muted">Choose how you appear in ProxiSpeak.</p></div>
+                  </div>
+                  <label className="field-label" htmlFor="profile-name">Display name</label>
+                  <input
+                    id="profile-name"
+                    className="field-input"
+                    value={profileName}
+                    onChange={(e) => setProfileName(e.target.value)}
+                    maxLength={30}
+                    disabled={profileSaving}
+                  />
+                  {profileError && <p className="footnote" role="alert" style={{ color: "#B42318" }}>{profileError}</p>}
+                  <button
+                    type="button"
+                    className="button button-primary button-small"
+                    onClick={handleSaveProfile}
+                    disabled={profileSaving}
+                    style={{ marginTop: 12 }}
+                  >
+                    {profileSaving ? "Saving..." : "Save changes"}
+                  </button>
+                  <p className="footnote">Your display name is saved to your account.</p>
+                </section>
                 <section className="panel settings-card"><div className="settings-heading"><span className="settings-icon"><ShieldCheck size={20} /></span><div><h3>Permissions</h3><p className="muted">Browser permissions are requested only when you ask.</p></div></div><div className="setting-row"><div><strong><MapPin size={16} /> Location</strong><p>{permission === "granted" ? "Permission granted" : permission === "denied" ? "Permission denied" : "Not requested"}</p></div><button className="button button-outline button-small" onClick={enableLocation}>Request</button></div><div className="setting-row"><div><strong><Mic size={16} /> Microphone</strong><p>{micPermission === "granted" ? "Permission granted" : micPermission === "denied" ? "Permission denied" : "Not requested"}</p></div><button className="button button-outline button-small" onClick={enableMicrophone}>Test access</button></div><p className="footnote">Microphone access is checked and immediately released. Live audio is not transmitted.</p></section>
                 <section className="panel settings-card"><div className="settings-heading"><span className="settings-icon"><Bell size={20} /></span><div><h3>Preferences</h3><p className="muted">Customize your experience.</p></div></div><div className="setting-row"><div><strong>Notifications</strong><p>Show in-app notification status</p></div><button className={`toggle ${notifications ? "toggle-on" : ""}`} role="switch" aria-checked={notifications} aria-label="Toggle notifications" onClick={() => setNotifications(!notifications)}><span /></button></div><div className="setting-row"><div><strong>Audio preview</strong><p>Start room previews muted</p></div><button className={`toggle ${muted ? "toggle-on" : ""}`} role="switch" aria-checked={muted} aria-label="Toggle muted preview" onClick={() => setMuted(!muted)}><span /></button></div></section>
                 <section className="panel settings-card"><div className="settings-heading"><span className="settings-icon"><Wifi size={20} /></span><div><h3>Connection status</h3><p className="muted">Current frontend environment.</p></div></div><div className="setting-row"><div><strong>Frontend</strong><p>React + Vite</p></div><span className="status-pill"><Check size={13} /> Running</span></div><div className="setting-row"><div><strong>Backend API</strong><p>Not configured yet</p></div><span className="status-pill status-demo">Demo mode</span></div></section>

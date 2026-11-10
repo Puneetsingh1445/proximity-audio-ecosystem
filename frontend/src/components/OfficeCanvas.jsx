@@ -1,4 +1,3 @@
-
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowDown,
@@ -312,6 +311,7 @@ export default function OfficeCanvas({
     voiceActive,
     connectedPeers,
     joinVoice,
+    leaveVoice,
     toggleMute,
     updateProximityVolume,
   } = useSpatialAudio({
@@ -377,7 +377,7 @@ export default function OfficeCanvas({
         Math.round(rect.width * dpr)
       );
 
-      canvas.height = Math.max(
+            canvas.height = Math.max(
         1,
         Math.round(rect.height * dpr)
       );
@@ -758,7 +758,7 @@ export default function OfficeCanvas({
     };
   }, []);
 
-  // Stop audio when leaving the page.
+    // Stop audio when leaving the page.
   useEffect(
     () => () => {
       engineRef.current?.stop();
@@ -867,6 +867,19 @@ export default function OfficeCanvas({
                 >
                   {muted ? <MicOff size={15} /> : <Mic size={15} />}
                   {muted ? "Unmute" : "Mute"}
+                </button>
+              )}
+
+              {voiceActive && (
+                <button
+                  id="voice-leave-btn"
+                  type="button"
+                  className="office-tool-button office-tool-button--muted"
+                  onClick={leaveVoice}
+                  title="Leave voice room"
+                >
+                  <MicOff size={15} />
+                  Leave voice
                 </button>
               )}
 

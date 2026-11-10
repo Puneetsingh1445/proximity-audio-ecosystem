@@ -90,23 +90,20 @@ function setupOfficeSocket(server) {
   const configured =
     process.env.FRONTEND_URL || "http://localhost:5174";
 
-  const allowedOrigins = [configured];
+  const allowedOrigins = new Set();
 
   try {
     const u = new URL(configured);
-    const p = parseInt(u.port, 10);
 
-    if (p === 5173) {
-      allowedOrigins.push(
-        `${u.protocol}//${u.hostname}:5174`
+    // Support the Vite development ports used by this project.
+    [5173, 5174, 5175].forEach((port) => {
+      allowedOrigins.add(
+        `${u.protocol}//${u.hostname}:${port}`
       );
-    }
+    });
 
-    if (p === 5174) {
-      allowedOrigins.push(
-        `${u.protocol}//${u.hostname}:5173`
-      );
-    }
+    // Also retain the exact configured origin (including a custom port).
+    allowedOrigins.add(u.origin);
   } catch (error) {
     console.error(
       "Invalid Socket.IO FRONTEND_URL:",
@@ -114,10 +111,16 @@ function setupOfficeSocket(server) {
     );
   }
 
+  console.log(
+    "Socket.IO allowed origins:",
+    [...allowedOrigins].join(", ")
+  );
+
   const io = new Server(server, {
     cors: {
-      origin: allowedOrigins,
+      origin: [...allowedOrigins],
       methods: ["GET", "POST"],
+      credentials: true,
     },
   });
 

@@ -19,17 +19,14 @@ const CONFIGURED_ORIGIN =
 function buildAllowedOrigins(base) {
   try {
     const url = new URL(base);
-    const port = parseInt(url.port, 10);
-    const origins = new Set([base]);
 
-    // Support Vite ports 5173 and 5174
-    if (port === 5173) {
-      origins.add(`${url.protocol}//${url.hostname}:5174`);
-    }
+    // Normalize the origin (removes trailing slash)
+    const origins = new Set([url.origin]);
 
-    if (port === 5174) {
-      origins.add(`${url.protocol}//${url.hostname}:5173`);
-    }
+    // Allow all current Vite development ports
+    [5173, 5174, 5175].forEach((port) => {
+      origins.add(`${url.protocol}//${url.hostname}:${port}`);
+    });
 
     return origins;
   } catch (error) {
@@ -91,7 +88,6 @@ app.use(express.json());
 
 // ==========================================
 // GENERAL API RATE LIMITING
-// 100 requests per 15 minutes
 // ==========================================
 
 app.use("/api", generalApiLimiter);
@@ -110,9 +106,6 @@ app.get("/api/health", (req, res) => {
 // ==========================================
 // USER ROUTES
 // ==========================================
-
-// Registration and login have their own
-// rate limiters inside userRoutes.js.
 
 app.use("/api/users", userRoutes);
 
