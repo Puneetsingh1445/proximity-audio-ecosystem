@@ -24,7 +24,7 @@ function buildAllowedOrigins(base) {
     const origins = new Set([url.origin]);
 
     // Allow all current Vite development ports
-    [5173, 5174, 5175].forEach((port) => {
+    [5173, 5174, 5175, 5176, 5177].forEach((port) => {
       origins.add(`${url.protocol}//${url.hostname}:${port}`);
     });
 

@@ -259,10 +259,11 @@ function drawAvatar(ctx, player, { isSelf = false, inRange = false } = {}) {
 }
 
 // Receive authenticated user details from the parent component.
-export default function OfficeCanvas({
+ export default function OfficeCanvas({
   displayName = "Sam",
   userId,
   token,
+  onLivePositionsChange,
 }) {
   const canvasRef = useRef(null);
 
@@ -299,6 +300,14 @@ export default function OfficeCanvas({
     token,
     getPosition,
   });
+  // Share live office positions and connection status with the main App component.
+useEffect(() => {
+  onLivePositionsChange?.({
+    myPosition: worldRef.current,
+    players: remotePlayers,
+    connectionStatus,
+  });
+}, [remotePlayers, connectionStatus, onLivePositionsChange]);
 
   // WebRTC spatial audio — uses the same socket for signaling.
   const isAuthenticated =

@@ -1639,3 +1639,348 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+
+/* ════════════════════════════════════════════════════════════════════════════
+   PHASE 1 REDESIGN — ADDITIONS
+   All new styles follow the existing naming conventions and are purely
+   additive; no existing rules are broken.
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* ── Keyframe animations ─────────────────────────────────────────────────── */
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0);    }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes pulseDot {
+  0%, 100% { opacity: 1; transform: scale(1);    }
+  50%       { opacity: 0.6; transform: scale(0.8); }
+}
+
+/* ── Auth loading screen ─────────────────────────────────────────────────── */
+.auth-loading-screen {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  background: #F7F9FC;
+  font-family: "DM Sans", system-ui, sans-serif;
+}
+
+.auth-loading-logo .brand-icon {
+  /* Stand-alone brand icon — override sidebar-specific positioning */
+  position: static;
+  width: 52px;
+  height: 52px;
+  border-radius: 15px;
+  animation: pulseDot 2s ease-in-out infinite;
+}
+
+.auth-loading-spinner {
+  width: 34px;
+  height: 34px;
+  border: 3px solid #E8EDF4;
+  border-top-color: #4169E1;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+.auth-loading-text {
+  color: #718096;
+  font-size: 14px;
+  margin: 0;
+  animation: fadeIn 600ms ease both;
+}
+
+/* ── Auth input focus ring (class added in JSX) ──────────────────────────── */
+.auth-input:focus {
+  border-color: #4169E1 !important;
+  box-shadow: 0 0 0 3px rgba(65, 105, 225, 0.12) !important;
+  background: #FFFFFF !important;
+}
+
+/* ── Dropdown shared backdrop ────────────────────────────────────────────── */
+/* Invisible full-screen layer that closes any open dropdown on click.       */
+.dropdown-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 12;
+  background: transparent;
+}
+
+/* ── Profile trigger (topbar button) ─────────────────────────────────────── */
+.profile-menu-wrap {
+  position: relative;
+}
+
+.profile-trigger {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 7px 4px 4px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: #9AA3B4;
+  cursor: pointer;
+  transition: background 150ms, border-color 150ms;
+}
+
+.profile-trigger:hover {
+  background: #F5F7FC;
+  border-color: var(--border);
+}
+
+.profile-trigger svg {
+  flex-shrink: 0;
+  transition: transform 220ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.chevron-rotated {
+  transform: rotate(180deg);
+}
+
+/* ── Profile dropdown card ───────────────────────────────────────────────── */
+.profile-dropdown {
+  position: absolute;
+  z-index: 15;
+  top: calc(100% + 8px);
+  right: 0;
+  min-width: 210px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 4px 6px -1px rgba(0,0,0,0.04),
+              0 20px 50px rgba(27, 45, 74, 0.11);
+  animation: slideUp 160ms ease both;
+}
+
+.profile-dropdown-header {
+  padding: 10px 10px 13px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.profile-dropdown-header strong {
+  display: block;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
+  margin-bottom: 3px;
+}
+
+.profile-dropdown-header span {
+  color: #718096;
+  font-size: 11.5px;
+  word-break: break-all;
+}
+
+.profile-dropdown-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #3b4559;
+  font-family: "DM Sans", sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: background 130ms;
+}
+
+.profile-dropdown-item:hover {
+  background: #F5F7FC;
+}
+
+.profile-dropdown-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 5px 0;
+}
+
+.profile-dropdown-danger {
+  color: #B42318;
+}
+
+.profile-dropdown-danger:hover {
+  background: #FEF3F2;
+}
+
+/* ── Sidebar nav active indicator (left accent bar) ─────────────────────── */
+/* We only add position:relative and ::before; original colour/bg untouched. */
+.nav-active {
+  position: relative;
+}
+
+.nav-active::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 55%;
+  min-height: 18px;
+  border-radius: 0 3px 3px 0;
+  background: #4169E1;
+}
+
+/* ── Stat card hover lift ────────────────────────────────────────────────── */
+.stat-card {
+  transition: box-shadow 200ms, transform 200ms;
+}
+
+.stat-card:hover {
+  box-shadow: 0 8px 28px rgba(38, 61, 100, 0.09);
+  transform: translateY(-2px);
+}
+
+/* ── Room card hover — slight scale addition ─────────────────────────────── */
+/* Original already has transform: translateY(-2px); we layer scale on top.  */
+.room-card {
+  transition: box-shadow 200ms, transform 200ms;
+}
+
+.room-card:hover {
+  box-shadow: 0 10px 30px rgba(38, 61, 100, 0.11);
+  transform: translateY(-3px);
+}
+
+/* ── Toast slide-up animation ────────────────────────────────────────────── */
+/* The .toast class exists in original CSS; we only add animation here.      */
+.toast {
+  animation: slideUp 220ms ease both;
+}
+
+/* ── Notification popover slide-up ──────────────────────────────────────── */
+.notification-popover {
+  animation: slideUp 160ms ease both;
+}
+
+/* ── Icon button active press ────────────────────────────────────────────── */
+.icon-button:active {
+  transform: scale(0.93);
+}
+
+/* ── Chat contact selected state (missing from original) ────────────────── */
+.selected-contact {
+  background: #edf3ff;
+}
+
+/* ── Empty-state enhanced ────────────────────────────────────────────────── */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 40px 16px;
+  color: #8b96a8;
+  text-align: center;
+  font-size: 13px;
+}
+
+/* ── Field-input focus ring (settings page) ──────────────────────────────── */
+.field-input:focus {
+  outline: none;
+  border-color: #4169E1;
+  box-shadow: 0 0 0 3px rgba(65, 105, 225, 0.12);
+}
+
+/* ── Button transitions (global enhancement) ────────────────────────────── */
+.button {
+  transition: background 160ms, border-color 160ms, transform 120ms, box-shadow 160ms;
+}
+
+.button:active {
+  transform: translateY(1px);
+}
+
+.button-primary {
+  box-shadow: 0 2px 8px rgba(53, 104, 232, 0.20);
+}
+
+.button-primary:hover {
+  box-shadow: 0 4px 14px rgba(53, 104, 232, 0.28);
+}
+
+/* ── Connection status pulse dot ─────────────────────────────────────────── */
+.connection-status > span {
+  animation: pulseDot 2.5s ease-in-out infinite;
+}
+
+/* ── Responsive: tablet adjustments (761px – 1000px) ────────────────────── */
+@media (min-width: 761px) and (max-width: 1000px) {
+  .stats-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .rooms-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .settings-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── Responsive: narrow mobile (<480px) ─────────────────────────────────── */
+@media (max-width: 480px) {
+  .hero-banner {
+    min-height: 220px;
+    padding: 22px 16px;
+  }
+
+  .hero-copy h2 {
+    font-size: 21px;
+  }
+
+  .page-content {
+    padding: 20px 14px 32px;
+  }
+
+  .topbar {
+    padding: 0 14px;
+  }
+
+  .profile-dropdown {
+    right: -8px;
+    min-width: 190px;
+  }
+
+  .connection-status {
+    display: none; /* hide "Signed in as…" on very small screens */
+  }
+
+  .topbar-actions {
+    gap: 6px;
+  }
+}
+
+/* ── Print / reduced-motion ──────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

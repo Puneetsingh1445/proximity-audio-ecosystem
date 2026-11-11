@@ -31,6 +31,7 @@ function getPlayers() {
     x: player.x,
     y: player.y,
     color: player.color,
+    status: "Online",
   }));
 }
 
@@ -96,7 +97,7 @@ function setupOfficeSocket(server) {
     const u = new URL(configured);
 
     // Support the Vite development ports used by this project.
-    [5173, 5174, 5175].forEach((port) => {
+    [5173, 5174, 5175, 5176, 5177].forEach((port) => {
       allowedOrigins.add(
         `${u.protocol}//${u.hostname}:${port}`
       );

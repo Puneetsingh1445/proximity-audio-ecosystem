@@ -4,19 +4,21 @@
 :root {
   font-family: "DM Sans", sans-serif;
   color: #172033;
-  background: #f7f9fc;
+  background: #F7F9FC;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   font-optical-sizing: auto;
   font-weight: 400;
-  --blue: #3568e8;
-  --blue-dark: #2453c7;
+  /* Design token updates — Phase 1 */
+  --blue: #4169E1;
+  --blue-dark: #3156d5;
   --text: #172033;
-  --muted: #7c879b;
-  --border: #e9edf4;
+  --muted: #718096;
+  --border: #E8EDF4;
   --surface: #ffffff;
+  --bg: #F7F9FC;
 }
 
 * {

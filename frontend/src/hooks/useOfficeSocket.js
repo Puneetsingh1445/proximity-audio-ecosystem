@@ -8,6 +8,7 @@ const JOIN_EVENT = "player:join";
 const MOVE_EVENT = "player:move";
 const PLAYERS_EVENT = "players:update";
 const LEAVE_EVENT = "player:leave";
+const POSITION_RESTORED_EVENT = "player:position-restored";
 
 function normalizePlayer(player) {
   const id = player?.userId ?? player?.id;
@@ -29,6 +30,7 @@ function normalizePlayer(player) {
     x,
     y,
     color: player.color || "#8B7CF6",
+    status: player.status || "Online",
   };
 }
 
@@ -42,6 +44,8 @@ export default function useOfficeSocket({
   const nameRef = useRef(displayName);
 
   const [remotePlayers, setRemotePlayers] = useState([]);
+  const [restoredPosition, setRestoredPosition] = useState(null);
+
   const [status, setStatus] = useState(
     SOCKET_URL && token ? "connecting" : "disconnected"
   );
@@ -50,32 +54,29 @@ export default function useOfficeSocket({
     nameRef.current = displayName;
   }, [displayName]);
 
-  const publishPosition = useCallback(
-    (position) => {
-      const socket = socketRef.current;
+  const publishPosition = useCallback((position) => {
+    const socket = socketRef.current;
 
-      if (!socket?.connected) return;
+    if (!socket?.connected) return;
 
-      socket.emit(MOVE_EVENT, {
-        x: Math.round(position.x),
-        y: Math.round(position.y),
-      });
-    },
-    []
-  );
+    socket.emit(MOVE_EVENT, {
+      x: Math.round(position.x),
+      y: Math.round(position.y),
+    });
+  }, []);
 
   useEffect(() => {
-  console.log("Socket configuration:", {
-    socketURL: SOCKET_URL,
-    hasToken: Boolean(token),
-    hasUserId: Boolean(userId),
-  });
+    console.log("Socket configuration:", {
+      socketURL: SOCKET_URL,
+      hasToken: Boolean(token),
+      hasUserId: Boolean(userId),
+    });
 
-  if (!SOCKET_URL || !token || !userId) {
-    console.error("Socket connection skipped: missing configuration");
-    setStatus("disconnected");
-    return undefined;
-  }
+    if (!SOCKET_URL || !token || !userId) {
+      console.error("Socket connection skipped: missing configuration");
+      setStatus("disconnected");
+      return undefined;
+    }
 
     const socket = io(SOCKET_URL, {
       auth: {
@@ -124,7 +125,9 @@ export default function useOfficeSocket({
       setRemotePlayers(
         list
           .map(normalizePlayer)
-          .filter((player) => player && player.id !== String(userId))
+          .filter(
+            (player) => player && player.id !== String(userId)
+          )
       );
     };
 
@@ -132,11 +135,35 @@ export default function useOfficeSocket({
       console.error("Office player error:", message);
     };
 
+    // Receive the user's saved position from the backend.
+    const handlePositionRestored = (position) => {
+      console.log("Saved position restored:", position);
+
+      if (
+        !position ||
+        !Number.isFinite(position.x) ||
+        !Number.isFinite(position.y)
+      ) {
+        console.error("Invalid restored position received");
+        return;
+      }
+
+      setRestoredPosition({
+        x: position.x,
+        y: position.y,
+      });
+    };
+
     socket.on("connect", handleConnect);
     socket.on("disconnect", handleDisconnect);
     socket.on("connect_error", handleConnectError);
     socket.on(PLAYERS_EVENT, handlePlayers);
     socket.on("player:error", handlePlayerError);
+
+    socket.on(
+      POSITION_RESTORED_EVENT,
+      handlePositionRestored
+    );
 
     return () => {
       if (socket.connected) {
@@ -149,6 +176,11 @@ export default function useOfficeSocket({
       socket.off(PLAYERS_EVENT, handlePlayers);
       socket.off("player:error", handlePlayerError);
 
+      socket.off(
+        POSITION_RESTORED_EVENT,
+        handlePositionRestored
+      );
+
       socket.disconnect();
       socketRef.current = null;
     };
@@ -158,8 +190,7 @@ export default function useOfficeSocket({
     remotePlayers,
     connectionStatus: status,
     publishPosition,
-    // Expose the socket so useSpatialAudio can attach signaling listeners
-    // without opening a second connection.
+    restoredPosition,
     socket: socketRef.current,
     socketRef,
   };
