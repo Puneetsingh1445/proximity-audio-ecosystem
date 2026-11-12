@@ -2,6 +2,7 @@
 const express = require("express");
 const cors = require("cors");
 const userRoutes = require("./routes/userRoutes");
+const roomRoutes = require("./routes/roomRoutes");
 
 const {
   generalApiLimiter,
@@ -108,6 +109,12 @@ app.get("/api/health", (req, res) => {
 // ==========================================
 
 app.use("/api/users", userRoutes);
+
+// ==========================================
+// ROOM ROUTES
+// ==========================================
+
+app.use("/api/rooms", roomRoutes);
 
 // ==========================================
 // 404 HANDLER

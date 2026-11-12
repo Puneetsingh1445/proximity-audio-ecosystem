@@ -259,11 +259,12 @@ function drawAvatar(ctx, player, { isSelf = false, inRange = false } = {}) {
 }
 
 // Receive authenticated user details from the parent component.
- export default function OfficeCanvas({
+export default function OfficeCanvas({
   displayName = "Sam",
   userId,
   token,
   onLivePositionsChange,
+  onSocketReady,       // (socketRef) => void  – called once the socket exists
 }) {
   const canvasRef = useRef(null);
 
@@ -308,6 +309,15 @@ useEffect(() => {
     connectionStatus,
   });
 }, [remotePlayers, connectionStatus, onLivePositionsChange]);
+
+  // Expose the shared socketRef to the parent so room audio can use it.
+  // We call onSocketReady only once when socketRef.current becomes available.
+  useEffect(() => {
+    if (socketRef.current && onSocketReady) {
+      onSocketReady(socketRef);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [socketRef.current, onSocketReady]);
 
   // WebRTC spatial audio — uses the same socket for signaling.
   const isAuthenticated =

@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import "./App.css";
 import OfficeCanvas from "./components/OfficeCanvas.jsx";
+import useRoomAudio from "./hooks/useRoomAudio.js";
 
 // ── Static sample data (clearly labelled as demo) ────────────────────────────
 const initialPeople = [
@@ -338,7 +339,87 @@ export default function App() {
   const [connectedPeople,     setConnectedPeople]     = useState([]);
   const [notice,              setNotice]              = useState("");
 
+  // ── Socket ref exposed by OfficeCanvas ──────────────────────────────────
+  // OfficeCanvas calls onSocketReady(socketRef) once the shared Socket.IO
+  // connection is established.  We store the ref here so the room audio
+  // hook can use it without creating a second connection.
+  const officeSocketRef = useRef(null);
+
+  // ── Room-specific state ─────────────────────────────────────────────────
+  const [roomsLoading,   setRoomsLoading]   = useState(false);
+  const [roomsError,     setRoomsError]     = useState("");
+  const [createRoomBusy, setCreateRoomBusy] = useState(false);
+  const [roomJoinError,  setRoomJoinError]  = useState("");
+  const [joiningRoom,    setJoiningRoom]    = useState(false); // in-flight join
+
   const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5055";
+
+  // ── Room audio hook ─────────────────────────────────────────────────────
+  // Uses the shared socket from OfficeCanvas via officeSocketRef.
+  // participants is now owned by the hook and kept live by socket events.
+  const {
+    micStatus:     roomMicStatus,
+    muted:         roomMuted,
+    inRoom:        roomAudioActive,
+    participants,              // Array<{ userId, name, muted, joinedAt }>
+    joinRoomAudio,
+    leaveRoomAudio,
+    toggleMute:    toggleRoomMute,
+  } = useRoomAudio({
+    socketRef: officeSocketRef,
+    userId:    auth?.user?.id ?? null,
+    roomId:    selectedRoom?.roomId ?? null,
+  });
+
+  // Callback passed to OfficeCanvas so it can hand up the socketRef.
+  const handleSocketReady = (ref) => {
+    officeSocketRef.current = ref.current;
+  };
+
+  // ── Fetch rooms from backend API ────────────────────────────────────────
+  useEffect(() => {
+    if (activePage !== "rooms" || !auth?.token) return undefined;
+
+    let cancelled = false;
+
+    async function fetchRooms() {
+      setRoomsLoading(true);
+      setRoomsError("");
+
+      try {
+        const response = await fetch(`${API_URL}/api/rooms`, {
+          headers: { Authorization: `Bearer ${auth.token}` },
+        });
+        const data = await response.json();
+
+        if (!response.ok || !data.success) {
+          throw new Error(data.message || "Could not load rooms.");
+        }
+
+        if (!cancelled) {
+          // Map API shape → UI shape, keeping the full roomId for socket use.
+          setRooms(
+            (data.rooms ?? []).map((r) => ({
+              id:          r.roomId,          // local list key
+              roomId:      r.roomId,          // used for socket join
+              name:        r.roomName,
+              category:    r.createdBy?.name ? `by ${r.createdBy.name}` : "Audio room",
+              description: r.description,
+              maxParticipants: r.maxParticipants,
+              color:       "blue",
+            }))
+          );
+        }
+      } catch (err) {
+        if (!cancelled) setRoomsError(err.message || "Could not load rooms.");
+      } finally {
+        if (!cancelled) setRoomsLoading(false);
+      }
+    }
+
+    fetchRooms();
+    return () => { cancelled = true; };
+  }, [activePage, auth?.token, API_URL]);
 
   // Load real nearby users from the authenticated backend API.
   useEffect(() => {
@@ -696,9 +777,38 @@ export default function App() {
     );
   }
 
-  function joinRoom(room) {
+  async function joinRoom(room) {
+    // If already in a different room, leave it first.
+    if (roomAudioActive && selectedRoom?.roomId !== room.roomId) {
+      leaveRoomAudio();
+      setSelectedRoom(null);
+    }
+
     setSelectedRoom(room);
     setActivePage("rooms");
+    setRoomJoinError("");
+
+    // Only attempt a live join when a socket is available.
+    if (!officeSocketRef.current) {
+      setRoomJoinError("Not connected to server. Open the Office Map first.");
+      return;
+    }
+
+    setJoiningRoom(true);
+    try {
+      const ack = await joinRoomAudio(room.roomId);
+      if (!ack?.success) {
+        setRoomJoinError(ack?.message || "Could not join room.");
+      } else {
+        // participants state is now owned by useRoomAudio and updated
+        // from the join ack and subsequent room:participants-updated events.
+        showNotice(`Joined "${room.name}".`);
+      }
+    } catch (err) {
+      setRoomJoinError(err.message || "Could not join room.");
+    } finally {
+      setJoiningRoom(false);
+    }
   }
 
   function sendMessage(event) {
@@ -709,13 +819,46 @@ export default function App() {
     setChatInput("");
   }
 
-  function addRoom() {
-    const name = window.prompt("Enter a name for your audio room:");
+  async function addRoom() {
+    if (!auth?.token) { showNotice("Sign in to create a room."); return; }
+    const name = window.prompt("Enter a name for your audio room (3–40 characters):");
     if (!name?.trim()) return;
-    const room = { id: Date.now(), name: name.trim(), category: "My room", people: 1, color: "green" };
-    setRooms((current) => [room, ...current]);
-    setSelectedRoom(room);
-    showNotice("Demo room created. Live audio needs a backend or real-time audio service.");
+    if (name.trim().length < 3) { showNotice("Room name must be at least 3 characters."); return; }
+
+    setCreateRoomBusy(true);
+    try {
+      const response = await fetch(`${API_URL}/api/rooms`, {
+        method:  "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization:  `Bearer ${auth.token}`,
+        },
+        body: JSON.stringify({ roomName: name.trim() }),
+      });
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || "Could not create room.");
+      }
+
+      const r = data.room;
+      const newRoom = {
+        id:          r.roomId,
+        roomId:      r.roomId,
+        name:        r.roomName,
+        category:    "My room",
+        description: r.description,
+        maxParticipants: r.maxParticipants,
+        color:       "green",
+      };
+
+      setRooms((current) => [newRoom, ...current]);
+      showNotice(`Room "${r.roomName}" created.`);
+    } catch (err) {
+      showNotice(err.message || "Could not create room.");
+    } finally {
+      setCreateRoomBusy(false);
+    }
   }
 
   const filteredPeople = people.filter((person) =>
@@ -763,7 +906,8 @@ export default function App() {
         <div className="room-content">
           <span className="room-category">{room.category}</span>
           <h3>{room.name}</h3>
-          <p className="muted"><Users size={14} /> {room.people} participants (demo)</p>
+          {room.description && <p className="muted" style={{ fontSize: 12 }}>{room.description}</p>}
+          <p className="muted"><Users size={14} /> up to {room.maxParticipants ?? "?"} participants</p>
           <button className="button button-primary room-join" onClick={() => joinRoom(room)}>
             Join room <ChevronRight size={16} />
           </button>
@@ -1146,6 +1290,7 @@ export default function App() {
               userId={auth?.user?.id}
               token={auth?.token}
               onLivePositionsChange={setLiveOfficePositions}
+              onSocketReady={handleSocketReady}
             />
           </div>
 
@@ -1298,10 +1443,15 @@ export default function App() {
               <SectionTitle
                 eyebrow="LISTEN TOGETHER"
                 title="Audio rooms"
-                description="Explore rooms, preview controls, and create a local demo room."
+                description="Join a live audio room and talk with other participants."
                 action={
-                  <button className="button button-primary" onClick={addRoom}>
-                    <AudioLines size={17} /> Create room
+                  <button
+                    className="button button-primary"
+                    onClick={addRoom}
+                    disabled={createRoomBusy}
+                  >
+                    <AudioLines size={17} />
+                    {createRoomBusy ? "Creating…" : "Create room"}
                   </button>
                 }
               />
@@ -1314,47 +1464,160 @@ export default function App() {
                     placeholder="Search audio rooms..."
                   />
                 </div>
-                <span className="muted">{filteredRooms.length} rooms</span>
+                <span className="muted">
+                  {roomsLoading ? "Loading…" : `${filteredRooms.length} rooms`}
+                </span>
               </div>
-              <div className="rooms-grid">{filteredRooms.map(renderRoom)}</div>
-              {filteredRooms.length === 0 && <p className="empty-state">No rooms match your search.</p>}
 
+              {/* Rooms grid */}
+              {roomsLoading ? (
+                <p className="empty-state">Loading rooms…</p>
+              ) : roomsError ? (
+                <p className="empty-state" role="alert">{roomsError}</p>
+              ) : (
+                <>
+                  <div className="rooms-grid">{filteredRooms.map(renderRoom)}</div>
+                  {filteredRooms.length === 0 && !roomsLoading && (
+                    <p className="empty-state">
+                      {roomSearch ? "No rooms match your search." : "No rooms yet. Create one to get started."}
+                    </p>
+                  )}
+                </>
+              )}
+
+              {/* Active room panel */}
               {selectedRoom && (
                 <section className="panel active-room">
                   <div className="active-room-heading">
                     <div>
-                      <p className="eyebrow">NOW SELECTED</p>
+                      <p className="eyebrow">
+                        {roomAudioActive ? "🔴 LIVE" : "NOW SELECTED"}
+                      </p>
                       <h2>{selectedRoom.name}</h2>
-                      <p className="muted">Audio controls preview — live room audio is not connected.</p>
+                      {roomAudioActive ? (
+                        <p className="muted">
+                          Connected · {participants.length} participant{participants.length !== 1 ? "s" : ""}
+                        </p>
+                      ) : (
+                        <p className="muted">
+                          {joiningRoom
+                            ? "Joining…"
+                            : roomJoinError
+                            ? roomJoinError
+                            : "Click Join room to connect your microphone."}
+                        </p>
+                      )}
                     </div>
-                    <button className="icon-button" aria-label="Close room" onClick={() => setSelectedRoom(null)}>
+                    <button
+                      className="icon-button"
+                      aria-label="Close room"
+                      onClick={() => {
+                        if (roomAudioActive) leaveRoomAudio();
+                        setSelectedRoom(null);
+                        setRoomJoinError("");
+                      }}
+                    >
                       <X size={18} />
                     </button>
                   </div>
+
+                  {/* Audio visualiser (decorative) */}
                   <div className="audio-visualizer">
                     {Array.from({ length: 35 }, (_, i) => (
                       <span key={i} style={{ "--bar": `${12 + ((i * 17 + 13) % 42)}px` }} />
                     ))}
                   </div>
+
+                  {/* Participant list */}
+                  {roomAudioActive && participants.length > 0 && (
+                    <div style={{ padding: "0 0 12px", display: "flex", flexWrap: "wrap", gap: 8 }}>
+                      {participants.map((p) => (
+                        <span
+                          key={p.userId}
+                          style={{
+                            display:        "inline-flex",
+                            alignItems:     "center",
+                            gap:            6,
+                            padding:        "4px 10px",
+                            borderRadius:   20,
+                            background:     p.userId === auth?.user?.id ? "#EEF2FF" : "#F4F3EE",
+                            fontSize:       13,
+                            fontWeight:     600,
+                            color:          "#273248",
+                          }}
+                        >
+                          {p.muted ? <MicOff size={12} /> : <Mic size={12} />}
+                          {p.name}
+                          {p.userId === auth?.user?.id && " (you)"}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Audio controls */}
                   <div className="audio-controls">
-                    <button
-                      className={`audio-control ${micEnabled ? "control-on" : ""}`}
-                      onClick={() => setMicEnabled(!micEnabled)}
-                    >
-                      {micEnabled ? <Mic size={19} /> : <MicOff size={19} />}
-                      <span>{micEnabled ? "Mic preview on" : "Mic off"}</span>
-                    </button>
-                    <button className="audio-control" onClick={() => setMuted(!muted)}>
-                      {muted ? <VolumeX size={19} /> : <Volume2 size={19} />}
-                      <span>{muted ? "Muted" : "Unmuted"}</span>
-                    </button>
-                    <button className="button button-outline" onClick={() => setSelectedRoom(null)}>
-                      Leave preview
-                    </button>
+                    {!roomAudioActive ? (
+                      <button
+                        className="button button-primary"
+                        onClick={() => joinRoom(selectedRoom)}
+                        disabled={joiningRoom}
+                      >
+                        <Mic size={17} />
+                        {joiningRoom ? "Joining…" : "Join room"}
+                      </button>
+                    ) : (
+                      <>
+                        {/* Real mute/unmute – controls MediaStreamTrack.enabled */}
+                        <button
+                          className={`audio-control ${!roomMuted ? "control-on" : ""}`}
+                          onClick={toggleRoomMute}
+                          title={roomMuted ? "Unmute microphone" : "Mute microphone"}
+                        >
+                          {roomMuted ? <MicOff size={19} /> : <Mic size={19} />}
+                          <span>{roomMuted ? "Unmute" : "Mute"}</span>
+                        </button>
+
+                        {/* Mic status badge */}
+                        <span style={{
+                          fontSize: 12, color: "#718096",
+                          display: "flex", alignItems: "center", gap: 4,
+                        }}>
+                          {roomMicStatus === "granted" && !roomMuted && "🎙 Live"}
+                          {roomMicStatus === "granted" && roomMuted  && "🔇 Muted"}
+                          {roomMicStatus === "denied"               && "🚫 No mic"}
+                          {roomMicStatus === "error"                && "⚠ Mic error"}
+                        </span>
+
+                        <button
+                          className="button button-outline"
+                          onClick={() => {
+                            leaveRoomAudio();
+                            setSelectedRoom(null);
+                            setRoomJoinError("");
+                          }}
+                        >
+                          Leave room
+                        </button>
+                      </>
+                    )}
                   </div>
-                  <p className="footnote">
-                    These controls change the interface only. They don&apos;t publish audio or connect to other listeners.
-                  </p>
+
+                  {/* Error / status footnote */}
+                  {roomJoinError && !joiningRoom && (
+                    <p className="footnote" role="alert" style={{ color: "#B42318" }}>
+                      {roomJoinError}
+                    </p>
+                  )}
+                  {!officeSocketRef.current && !roomAudioActive && (
+                    <p className="footnote" style={{ color: "#B45309" }}>
+                      ⚠ Open the Office Map tab first to establish a connection, then come back and join a room.
+                    </p>
+                  )}
+                  {roomMicStatus === "denied" && (
+                    <p className="footnote" role="alert" style={{ color: "#B42318" }}>
+                      🚫 Microphone permission denied. Allow access in your browser&apos;s site settings and try again.
+                    </p>
+                  )}
                 </section>
               )}
             </>
