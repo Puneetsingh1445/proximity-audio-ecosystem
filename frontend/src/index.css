@@ -1,0 +1,67 @@
+
+@import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap");
+
+:root {
+  font-family: "DM Sans", sans-serif;
+  color: #172033;
+  background: #F7F9FC;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-optical-sizing: auto;
+  font-weight: 400;
+  /* Design token updates — Phase 1 */
+  --blue: #4169E1;
+  --blue-dark: #3156d5;
+  --text: #172033;
+  --muted: #718096;
+  --border: #E8EDF4;
+  --surface: #ffffff;
+  --bg: #F7F9FC;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+body, button, input {
+  font-family: "DM Sans", sans-serif;
+}
+
+button, input {
+  font-size: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:focus-visible, input:focus-visible {
+  outline: 3px solid #b7caff;
+  outline-offset: 2px;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+h1, h2, h3, p {
+  margin-top: 0;
+}
+
+h1, h2, h3, .brand {
+  font-family: "Plus Jakarta Sans", sans-serif;
+}
+
+::selection {
+  background: #dce7ff;
+  color: #1c3c86;
+}
